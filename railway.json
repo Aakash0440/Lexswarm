@@ -1,0 +1,7 @@
+{
+  "build": {"builder": "DOCKERFILE"},
+  "deploy": {
+    "startCommand": "python scripts/run_api.py",
+    "restartPolicyType": "ON_FAILURE"
+  }
+}

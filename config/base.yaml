@@ -1,0 +1,118 @@
+# config/base.yaml — LEXSWARM configuration
+
+system:
+  mode: development
+  log_level: INFO
+  timezone: UTC
+
+intake:
+  max_description_length: 5000
+  supported_languages:
+    - en   # English
+    - ur   # Urdu
+    - id   # Indonesian
+    - ar   # Arabic
+    - hi   # Hindi
+    - fr   # French
+    - es   # Spanish
+    - sw   # Swahili
+    - bn   # Bengali
+    - tl   # Filipino
+    - zh   # Chinese
+    - pt   # Portuguese
+    - ru   # Russian
+    - de   # German
+    - tr   # Turkish
+    - fa   # Persian/Farsi
+  default_language: en
+
+classification:
+  urgency_critical_keywords:
+    - "tonight"
+    - "today"
+    - "right now"
+    - "immediately"
+    - "emergency"
+    - "arrested"
+    - "locked out"
+    - "deported"
+  urgency_high_keywords:
+    - "tomorrow"
+    - "this week"
+    - "court date"
+    - "hearing"
+    - "deadline"
+
+knowledge:
+  courtlistener_base_url: "https://www.courtlistener.com/api/rest/v3"
+  govinfo_base_url: "https://api.govinfo.gov"
+  max_results_per_source: 3
+  offline_fallback: true   # always use offline DB if API fails
+  cache_results: true
+  cache_ttl_hours: 24
+
+escalation:
+  human_alert_threshold: 0.70   # alert volunteer above this score
+  critical_threshold: 0.85      # maximum emergency
+  high_risk_case_types:
+    - criminal
+    - immigration
+    - family
+
+simulation:
+  n_agents_per_type: 100        # agents per courtroom role
+  agent_types:
+    - judge
+    - jury
+    - prosecution
+    - defense
+    - opposing_counsel
+  mock_mode: true               # set false when MiroFish server is running
+  mirofish_url: "http://localhost:8001"
+
+document_generation:
+  always_generate:
+    - rights_notice
+    - demand_letter
+  generate_if_high_urgency:
+    - court_complaint
+  include_disclaimer: true      # always add "review with human lawyer" note
+  supported_doc_types:
+    - demand_letter
+    - rights_notice
+    - court_complaint
+    - appeal_letter
+    - police_complaint
+
+alerts:
+  volunteer_alert_enabled: true
+  telegram_enabled: true
+  email_enabled: false
+  alert_on_urgency:
+    - CRITICAL
+    - HIGH
+
+api:
+  host: 0.0.0.0
+  port: 8000
+  workers: 2
+  rate_limit_per_minute: 30
+
+jurisdictions:
+  covered:
+    - PK   # Pakistan
+    - IN   # India
+    - US   # United States
+    - GB   # United Kingdom
+    - ID   # Indonesia
+    - NG   # Nigeria
+    - BD   # Bangladesh
+    - PH   # Philippines
+    - ET   # Ethiopia
+    - EG   # Egypt
+    - ZA   # South Africa
+    - KE   # Kenya
+    - GH   # Ghana
+    - TZ   # Tanzania
+    - UG   # Uganda
+  default_fallback: UN  # Universal human rights
