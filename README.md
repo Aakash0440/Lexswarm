@@ -1,154 +1,150 @@
-# LEXSWARM — AI Legal Defense System for the Unrepresented
+# LEXSWARM
 
-> 5 billion people have no access to a lawyer. LEXSWARM gives everyone the same quality of legal defense that money currently buys — in any language, any jurisdiction, for free.
+> AI legal defense for the 5 billion people who can't afford a lawyer.
+
+[![Python](https://img.shields.io/badge/python-3.11+-blue?style=flat-square)](https://python.org)
+[![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
+[![Languages](https://img.shields.io/badge/languages-100+-orange?style=flat-square)]()
+[![Jurisdictions](https://img.shields.io/badge/jurisdictions-100+-purple?style=flat-square)]()
+[![Research](https://img.shields.io/badge/paper-ICAIL%202026-red?style=flat-square)]()
+
+You describe your situation in plain language. LEXSWARM identifies your rights, cites the exact statute, simulates how a judge will respond, generates your documents, and alerts a human volunteer lawyer if things are critical — all in your own language, for free.
+
+---
 
 ## The problem
 
 - Lawyers cost $200–$500/hour
-- Legal aid offices have 1 lawyer per 6,000 eligible clients (US)
-- 5 billion people worldwide face legal situations with zero representation
-- Existing tools (DoNotPay, Harvey AI) are US-only, expensive, or inaccessible
+- US legal aid: 1 lawyer per 6,000 eligible clients
+- 5 billion people face legal situations with zero representation
+- Existing tools (DoNotPay, Harvey AI) are US-only, expensive, or both
 
-## What LEXSWARM does
+---
 
-You describe your situation in any language. LEXSWARM:
+## Example
 
-1. Detects your language, jurisdiction, and case type automatically
-2. Identifies your exact legal rights with real statute citations
-3. Simulates how a judge, jury, and opposing counsel will react to your arguments (MiroFish courtroom simulation)
-4. Detects if your situation is escalating into a crisis (FRAMEWORM-SHIFT)
-5. Generates demand letters, rights notices, and court complaints instantly
-6. Alerts a human volunteer lawyer if the situation is critical
-
-**Sample input:**
+**Input** — in any language:
 ```
-"My landlord changed the locks tonight and threw my belongings outside. I have nowhere to sleep. This is in Karachi, Pakistan."
+"My landlord changed the locks tonight and threw my belongings outside.
+I have nowhere to sleep. This is in Karachi, Pakistan."
 ```
 
-**Sample output:**
+**Output:**
 ```
-Case: HOUSING | Urgency: CRITICAL | Country: PK
+Case: HOUSING  |  Urgency: CRITICAL  |  Country: PK
 
 Your Legal Rights:
-1. Right to adequate notice before eviction
-   Law: Rent Restriction Ordinance 2001, Section 15
-   Meaning: Your landlord must give written notice. Verbal eviction is illegal.
+  1. Right to adequate notice before eviction
+     Law: Rent Restriction Ordinance 2001, Section 15
+     → Written notice required. Verbal eviction is illegal.
 
-2. Protection against illegal lockout
-   Law: Transfer of Property Act 1882, Section 108
-   Meaning: Changing locks without a court order is a criminal offence.
+  2. Protection against illegal lockout
+     Law: Transfer of Property Act 1882, Section 108
+     → Changing locks without a court order is a criminal offence.
 
 Action Plan:
   Step 1: Call emergency legal aid NOW (within 30 minutes)
-  Step 2: Document everything with timestamps (immediately)
+  Step 2: Document everything with timestamps
   Step 3: Send the demand letter (within 24 hours)
 
-Courtroom Simulation:
+Courtroom Simulation (MiroFish, 500 agents):
   Win probability: 78%
   Best argument: "Landlord failed to provide adequate notice as required by law"
   Judge will ask: "What specific statute supports this argument?"
 
 Documents generated:
-  - Legal Rights Notice (PDF ready)
-  - Demand Letter with statute citations (fill in brackets, send tonight)
-  - Court Complaint (if no response within 48h)
+  ✓ Legal Rights Notice (PDF)
+  ✓ Demand Letter with statute citations
+  ✓ Court Complaint (if no response within 48h)
 
 !! HUMAN LAWYER ALERT SENT — volunteer notified via Telegram !!
 ```
 
-## Architecture
+---
+
+## How it works
 
 ```
 User input (any language)
-        |
-   INTAKE LAYER
-   - Language detection (100+ languages)
-   - Jurisdiction detector
-   - Case type classifier
-   - Urgency scorer
-        |
-   FRAMEWORM-SHIFT (escalation detector)
-   - Detects crisis escalation patterns
-   - Alerts human volunteer if threshold crossed
-        |
-   LEGAL KNOWLEDGE LAYER
-   - CourtListener API (free, US case law)
-   - GovInfo API (US federal law)
-   - Offline statute database (100+ jurisdictions)
-   - Always cites real statutes — never hallucinates
-        |
-   MIROFISH COURTROOM SIMULATION
-   - 500 agents: judge, jury, prosecution, defense, opposing counsel
-   - Predicts favorable probability per argument
-   - Recommends optimal legal strategy
-        |
-   FRAMEWORM-AGENT (document generation)
-   - Demand letters
-   - Court complaints
-   - Rights notices
-   - Step-by-step action plans
-        |
-   OUTPUT
-   - Plain language in user's own language
-   - Downloadable documents
-   - Human lawyer alert via Telegram
+         │
+    INTAKE LAYER
+    Language detection · Jurisdiction detection · Case classifier · Urgency scorer
+         │
+    FRAMEWORM-SHIFT
+    Escalation detection · Human volunteer alert if threshold crossed
+         │
+    LEGAL KNOWLEDGE LAYER
+    CourtListener API · GovInfo API · Offline statute DB (100+ jurisdictions)
+    Always cites real statutes — never hallucinates
+         │
+    MIROFISH COURTROOM SIMULATION
+    500 agents: judge, jury, prosecution, defense, opposing counsel
+    Win probability per argument · Optimal strategy recommendation
+         │
+    FRAMEWORM-AGENT
+    Demand letters · Court complaints · Rights notices · Action plans
+         │
+    OUTPUT
+    Plain language in user's own language · Downloadable documents · Telegram alert
 ```
 
-## What makes this never-been-done
+---
 
-| Feature | DoNotPay | Harvey AI | ChatGPT | LEXSWARM |
-|---------|----------|-----------|---------|---------|
-| 100+ languages | No | No | Partial | Yes |
-| 100+ jurisdictions | No | No | No | Yes |
-| Cites real statutes | No | Yes | No | Yes |
-| Courtroom simulation | No | No | No | Yes (MiroFish) |
-| Crisis escalation detection | No | No | No | Yes (FRAMEWORM) |
-| Autonomous document filing | Partial | No | No | Yes (AGENT) |
-| Free for end users | No | No | No | Yes |
+## What makes this different
 
-## Quick start
+| Feature | DoNotPay | Harvey AI | ChatGPT | **LEXSWARM** |
+|---|---|---|---|---|
+| 100+ languages | ✗ | ✗ | Partial | **✓** |
+| 100+ jurisdictions | ✗ | ✗ | ✗ | **✓** |
+| Cites real statutes | ✗ | ✓ | ✗ | **✓** |
+| Courtroom simulation | ✗ | ✗ | ✗ | **✓** |
+| Crisis escalation detection | ✗ | ✗ | ✗ | **✓** |
+| Autonomous document filing | Partial | ✗ | ✗ | **✓** |
+| Free for end users | ✗ | ✗ | ✗ | **✓** |
+
+---
+
+## Quickstart
 
 ```bash
 # Install
-pip install httpx transformers torch langdetect python-telegram-bot python-dotenv pyyaml loguru
+pip install httpx transformers torch langdetect \
+  python-telegram-bot python-dotenv pyyaml loguru
 
 # Run demo
-set PYTHONPATH=.
 python scripts/run_lexswarm.py --demo
 
 # Run demo in Urdu
 python scripts/run_lexswarm.py --demo --lang ur
 
 # Run your own case
-python scripts/run_lexswarm.py --case "My employer has not paid my salary for 3 months in Jakarta, Indonesia"
+python scripts/run_lexswarm.py --case "My employer hasn't paid my salary for 3 months in Jakarta, Indonesia"
 ```
-
-## Research targets
-
-- ACL 2026 — multilingual legal NLP
-- AAAI 2026 — AI for social good track
-- ICAIL 2026 — International Conference on AI and Law
-
-**Paper title:** *LEXSWARM: Swarm Intelligence and Drift-Aware Agent Systems for Autonomous Legal Defense in Low-Resource Jurisdictions*
-
-## Novelty claims
-
-1. First system to apply swarm agent simulation to courtroom outcome prediction
-2. First multilingual legal AI covering 100+ jurisdictions simultaneously
-3. First application of distribution drift detection to legal crisis escalation
-4. First open-source end-to-end autonomous legal document system for unrepresented populations
-
-## Built with
-
-Same FRAMEWORM stack as QUANTSHIFT-SWARM:
-- Python 3.11+ | PyTorch | Transformers (Helsinki-NLP multilingual models)
-- FRAMEWORM-SHIFT (drift/escalation detection)
-- MiroFish (swarm agent simulation)
-- FRAMEWORM-AGENT (autonomous document generation)
-- FastAPI | Telegram | langdetect
 
 ---
 
-*Not a substitute for qualified legal advice. Always review generated documents with a human lawyer before filing. LEXSWARM is a tool to help unrepresented people understand their rights and take initial action — not a replacement for legal representation.*
+## Research
 
-**github.com/Aakash0440/lexswarm**
+**Paper:** *LEXSWARM: Swarm Intelligence and Drift-Aware Agent Systems for Autonomous Legal Defense in Low-Resource Jurisdictions*
+
+Target venues: ICAIL 2026 · ACL 2026 · AAAI 2026 (AI for social good)
+
+**Novelty claims:**
+- First system applying swarm agent simulation to courtroom outcome prediction
+- First multilingual legal AI covering 100+ jurisdictions simultaneously
+- First use of distribution drift detection for legal crisis escalation
+- First open-source end-to-end autonomous legal document system for unrepresented populations
+
+---
+
+## Stack
+
+Built on the same FRAMEWORM infrastructure as QUANTSHIFT-SWARM.
+
+`Python 3.11` · `PyTorch` · `Helsinki-NLP multilingual models` · `FRAMEWORM-SHIFT` · `FRAMEWORM-AGENT` · `MiroFish` · `FastAPI` · `Telegram` · `langdetect`
+
+---
+
+> **Disclaimer:** Not a substitute for qualified legal advice. Always review generated documents with a human lawyer before filing. LEXSWARM helps unrepresented people understand their rights and take initial steps — it is not a replacement for legal representation.
+>
+> MIT © 2026 Aakash Ali
