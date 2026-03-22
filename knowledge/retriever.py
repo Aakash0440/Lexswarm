@@ -1,14 +1,13 @@
 # knowledge/retriever.py
-# Retrieval-Augmented Generation over real law databases
-# Sources: CourtListener (free), GovInfo (free), EUR-Lex (EU, free), CommonLII
-# ALWAYS cites real statutes — never hallucinates case law
-# This is what separates LEXSWARM from generic ChatGPT legal advice
+# Loads all statutes from config/jurisdictions.yaml automatically
+# 10 countries x 10 case types = 100 statute sets
+# No hardcoded statute lists — add new countries just by editing the YAML
 
 import httpx
-import asyncio
+import yaml
+import os
 from dataclasses import dataclass
 from intake.base import CaseType, LegalRight
-
 
 @dataclass
 class StatuteResult:
@@ -20,219 +19,252 @@ class StatuteResult:
     jurisdiction: str
     relevance_score: float
 
-
-# ── Free law API endpoints ─────────────────────────────────────────────────────
-
 COURTLISTENER_BASE = "https://www.courtlistener.com/api/rest/v3"
-GOVINFO_BASE       = "https://api.govinfo.gov"
-EURLEX_BASE        = "https://eur-lex.europa.eu/search.html"
 
-# ── Hardcoded statute knowledge base (offline fallback) ───────────────────────
-# Key statutes for most common case types across major jurisdictions
-# Used when APIs are unavailable — ensures bot works offline / low bandwidth
+CASE_TYPE_MAP = {
+    "housing":                   CaseType.HOUSING,
+    "labor":                     CaseType.LABOR,
+    "criminal":                  CaseType.CRIMINAL,
+    "family":                    CaseType.FAMILY,
+    "immigration":               CaseType.IMMIGRATION,
+    "consumer":                  CaseType.CONSUMER,
+    "civil":                     CaseType.CIVIL,
+    "human_rights":              CaseType.HUMAN_RIGHTS,
+    "debt":                      CaseType.CIVIL,
+    "employment_discrimination":  CaseType.LABOR,
+}
 
-OFFLINE_STATUTES = {
-    ("PK", CaseType.HOUSING): [
-        LegalRight(
-            right="Right to adequate notice before eviction",
-            statute="Rent Restriction Ordinance 2001, Section 15",
-            jurisdiction="PK",
-            source_url="",
-            plain_english="Your landlord must give you written notice before starting eviction proceedings. Verbal eviction orders are illegal in Pakistan.",
-        ),
-        LegalRight(
-            right="Protection against illegal lockout",
-            statute="Transfer of Property Act 1882, Section 108",
-            jurisdiction="PK",
-            source_url="",
-            plain_english="A landlord cannot change locks or remove your belongings without a court order. Doing so is a criminal offence.",
-        ),
+UNIVERSAL_RIGHTS = {
+    CaseType.LABOR: [
+        LegalRight(right="Right to just and favourable conditions of work",
+                   statute="Universal Declaration of Human Rights, Article 23",
+                   jurisdiction="UNIVERSAL", source_url="",
+                   plain_english="Everyone has the right to just conditions of work, equal pay, and protection against unemployment."),
+        LegalRight(right="Right to fair pay and reasonable working hours",
+                   statute="Universal Declaration of Human Rights, Article 24",
+                   jurisdiction="UNIVERSAL", source_url="",
+                   plain_english="Everyone has the right to fair remuneration and reasonable working hours. Unpaid overtime violates this right."),
+        LegalRight(right="Protection of wages against unlawful withholding",
+                   statute="ILO Convention No. 95 — Protection of Wages (1949)",
+                   jurisdiction="UNIVERSAL", source_url="",
+                   plain_english="Wages must be paid in full, regularly, and directly to the worker."),
+        LegalRight(right="Protection against retaliatory dismissal",
+                   statute="ILO Convention No. 158 — Termination of Employment (1982)",
+                   jurisdiction="UNIVERSAL", source_url="",
+                   plain_english="Termination for raising a wage complaint is unlawful retaliation under international labour standards."),
     ],
-    ("PK", CaseType.LABOR): [
-        LegalRight(
-            right="Right to unpaid wages",
-            statute="Payment of Wages Act 1936, Section 4",
-            jurisdiction="PK",
-            source_url="",
-            plain_english="Your employer must pay wages by the 7th of the following month. Failure is a criminal offence with penalties up to Rs 50,000.",
-        ),
-        LegalRight(
-            right="Protection against wrongful termination",
-            statute="Industrial and Commercial Employment Ordinance 1968, Section 11",
-            jurisdiction="PK",
-            source_url="",
-            plain_english="You cannot be fired without a show-cause notice and a proper inquiry. Wrongful termination entitles you to compensation.",
-        ),
+    CaseType.HOUSING: [
+        LegalRight(right="Right to adequate housing",
+                   statute="ICESCR Article 11",
+                   jurisdiction="UNIVERSAL", source_url="",
+                   plain_english="Everyone has the right to adequate housing. Forced eviction without legal notice violates international law."),
+        LegalRight(right="Protection from arbitrary deprivation of property",
+                   statute="Universal Declaration of Human Rights, Article 17",
+                   jurisdiction="UNIVERSAL", source_url="",
+                   plain_english="No one may be deprived of their home without lawful due process and a court order."),
     ],
-    ("US", CaseType.HOUSING): [
-        LegalRight(
-            right="Right to habitable dwelling",
-            statute="Implied Warranty of Habitability (common law, all US states)",
-            jurisdiction="US",
-            source_url="https://www.law.cornell.edu/wex/implied_warranty_of_habitability",
-            plain_english="Your landlord must keep your home livable — working heat, no pest infestations, safe structure. If they don't, you may withhold rent in most states.",
-        ),
-        LegalRight(
-            right="Protection against retaliatory eviction",
-            statute="Various state statutes — e.g. NY Real Property Law Section 223-b",
-            jurisdiction="US",
-            source_url="",
-            plain_english="A landlord cannot evict you for complaining to housing authorities or organizing tenants. This is illegal retaliation.",
-        ),
+    CaseType.CRIMINAL: [
+        LegalRight(right="Prohibition of arbitrary detention",
+                   statute="Universal Declaration of Human Rights, Article 9",
+                   jurisdiction="UNIVERSAL", source_url="",
+                   plain_english="No one may be arrested or detained arbitrarily without legal basis."),
+        LegalRight(right="Right to be informed of charges",
+                   statute="ICCPR Article 9(2)",
+                   jurisdiction="UNIVERSAL", source_url="",
+                   plain_english="Anyone arrested must be informed promptly of charges in a language they understand."),
+        LegalRight(right="Right to legal representation",
+                   statute="ICCPR Article 14(3)(d)",
+                   jurisdiction="UNIVERSAL", source_url="",
+                   plain_english="Every accused person has the right to legal representation. If they cannot afford a lawyer, one must be provided."),
     ],
-    ("US", CaseType.LABOR): [
-        LegalRight(
-            right="Right to minimum wage",
-            statute="Fair Labor Standards Act (FLSA), 29 U.S.C. § 206",
-            jurisdiction="US",
-            source_url="https://www.law.cornell.edu/uscode/text/29/206",
-            plain_english="Federal minimum wage is $7.25/hour. Your state may have a higher minimum. Your employer must pay at least this amount.",
-        ),
-        LegalRight(
-            right="Right to safe workplace",
-            statute="Occupational Safety and Health Act 1970, 29 U.S.C. § 654",
-            jurisdiction="US",
-            source_url="https://www.law.cornell.edu/uscode/text/29/654",
-            plain_english="Your employer must provide a workplace free from recognized hazards. You can file a complaint with OSHA anonymously.",
-        ),
+    CaseType.FAMILY: [
+        LegalRight(right="Protection of the family unit",
+                   statute="Universal Declaration of Human Rights, Article 16(3)",
+                   jurisdiction="UNIVERSAL", source_url="",
+                   plain_english="The family is a fundamental unit of society entitled to protection by the State."),
+        LegalRight(right="Best interests of the child",
+                   statute="UN Convention on the Rights of the Child, Article 3",
+                   jurisdiction="UNIVERSAL", source_url="",
+                   plain_english="In all decisions concerning children, the best interests of the child must be the primary consideration."),
     ],
-    ("GB", CaseType.HOUSING): [
-        LegalRight(
-            right="Right to proper eviction notice",
-            statute="Housing Act 1988, Section 21",
-            jurisdiction="GB",
-            source_url="https://www.legislation.gov.uk/ukpga/1988/50/section/21",
-            plain_english="For assured shorthold tenancies, landlords must give at least 2 months written notice before eviction. No notice = illegal eviction.",
-        ),
+    CaseType.IMMIGRATION: [
+        LegalRight(right="Right to seek asylum",
+                   statute="Universal Declaration of Human Rights, Article 14",
+                   jurisdiction="UNIVERSAL", source_url="",
+                   plain_english="Everyone has the right to seek and enjoy asylum from persecution."),
+        LegalRight(right="Non-refoulement protection",
+                   statute="1951 Refugee Convention, Article 33",
+                   jurisdiction="UNIVERSAL", source_url="",
+                   plain_english="No person may be returned to a country where they face persecution or serious harm."),
     ],
-    ("ID", CaseType.LABOR): [
-        LegalRight(
-            right="Protection against illegal termination",
-            statute="Manpower Act No. 13/2003, Article 151",
-            jurisdiction="ID",
-            source_url="",
-            plain_english="Employers must negotiate with workers and obtain approval from the Industrial Relations Court before terminating employment.",
-        ),
+    CaseType.CONSUMER: [
+        LegalRight(right="Right to effective legal remedy",
+                   statute="Universal Declaration of Human Rights, Article 8",
+                   jurisdiction="UNIVERSAL", source_url="",
+                   plain_english="Everyone has the right to an effective remedy by a competent tribunal."),
+        LegalRight(right="UN Consumer Protection Guidelines",
+                   statute="UN Guidelines for Consumer Protection (2015)",
+                   jurisdiction="UNIVERSAL", source_url="",
+                   plain_english="Consumers have rights to safety, information, choice, and redress under UN guidelines."),
     ],
-    ("IN", CaseType.LABOR): [
-        LegalRight(
-            right="Right to gratuity payment",
-            statute="Payment of Gratuity Act 1972, Section 4",
-            jurisdiction="IN",
-            source_url="",
-            plain_english="After 5 years of continuous service, you are entitled to gratuity payment of 15 days' salary for each year worked.",
-        ),
+    CaseType.CIVIL: [
+        LegalRight(right="Right to effective legal remedy",
+                   statute="Universal Declaration of Human Rights, Article 8",
+                   jurisdiction="UNIVERSAL", source_url="",
+                   plain_english="Everyone has the right to an effective remedy by a competent national tribunal."),
+        LegalRight(right="Right to fair trial",
+                   statute="Universal Declaration of Human Rights, Article 10",
+                   jurisdiction="UNIVERSAL", source_url="",
+                   plain_english="Everyone is entitled to a fair and public hearing by an independent tribunal."),
+    ],
+    CaseType.HUMAN_RIGHTS: [
+        LegalRight(right="Prohibition of torture",
+                   statute="UN Convention Against Torture, Article 1",
+                   jurisdiction="UNIVERSAL", source_url="",
+                   plain_english="No one may be tortured or subjected to cruel or degrading treatment under any circumstances."),
+        LegalRight(right="Right to equality before the law",
+                   statute="Universal Declaration of Human Rights, Article 7",
+                   jurisdiction="UNIVERSAL", source_url="",
+                   plain_english="All people are equal before the law and entitled to equal protection without discrimination."),
+    ],
+    CaseType.UNKNOWN: [
+        LegalRight(right="Right to equality before the law",
+                   statute="Universal Declaration of Human Rights, Article 7",
+                   jurisdiction="UNIVERSAL", source_url="",
+                   plain_english="All people are equal before the law and entitled to equal protection."),
+        LegalRight(right="Right to effective legal remedy",
+                   statute="Universal Declaration of Human Rights, Article 8",
+                   jurisdiction="UNIVERSAL", source_url="",
+                   plain_english="Everyone has the right to an effective remedy by a competent national tribunal."),
     ],
 }
 
-# Default universal rights that apply everywhere
-UNIVERSAL_RIGHTS = [
-    LegalRight(
-        right="Right to legal representation",
-        statute="Universal Declaration of Human Rights, Article 11",
-        jurisdiction="UNIVERSAL",
-        source_url="https://www.un.org/en/about-us/universal-declaration-of-human-rights",
-        plain_english="Everyone has the right to a fair trial and legal representation. If you cannot afford a lawyer, the state should provide one in criminal cases.",
-    ),
-    LegalRight(
-        right="Right to be informed of charges",
-        statute="International Covenant on Civil and Political Rights, Article 14",
-        jurisdiction="UNIVERSAL",
-        source_url="",
-        plain_english="If you are accused of a crime, you have the right to be told exactly what you are charged with, in a language you understand.",
-    ),
-    LegalRight(
-        right="Prohibition of torture and cruel treatment",
-        statute="UN Convention Against Torture, Article 1",
-        jurisdiction="UNIVERSAL",
-        source_url="",
-        plain_english="No one may be tortured or subjected to cruel or degrading treatment under any circumstances. This applies to police, military, and prison authorities.",
-    ),
-]
+
+def _load_yaml_statutes() -> dict:
+    """
+    Load all statutes from config/jurisdictions.yaml at startup.
+    Returns dict keyed by (country_code, case_type_string).
+    Add new countries by editing the YAML only — no code changes needed.
+    """
+    yaml_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "config", "jurisdictions.yaml"
+    )
+    db = {}
+    try:
+        with open(yaml_path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+
+        for country_name, country_data in data.items():
+            code = country_data.get("code", "XX")
+            for case_type_str, rights_list in country_data.get("statutes", {}).items():
+                rights = [
+                    LegalRight(
+                        right=r.get("right", ""),
+                        statute=r.get("statute", ""),
+                        jurisdiction=code,
+                        source_url=r.get("source_url", ""),
+                        plain_english=r.get("plain_english", ""),
+                    )
+                    for r in rights_list
+                ]
+                db[(code, case_type_str)] = rights
+
+        print(f"[Retriever] Loaded {len(db)} statute sets from jurisdictions.yaml "
+              f"({len(set(k[0] for k in db))} countries × {len(set(k[1] for k in db))} case types)")
+
+    except FileNotFoundError:
+        print("[Retriever] WARNING: jurisdictions.yaml not found")
+    except Exception as e:
+        print(f"[Retriever] ERROR loading yaml: {e}")
+    return db
+
+
+# Load once at startup — shared across all requests
+_STATUTE_DB = _load_yaml_statutes()
+
+ENUM_TO_STR = {
+    CaseType.HOUSING:     "housing",
+    CaseType.LABOR:       "labor",
+    CaseType.CRIMINAL:    "criminal",
+    CaseType.FAMILY:      "family",
+    CaseType.IMMIGRATION: "immigration",
+    CaseType.CONSUMER:    "consumer",
+    CaseType.CIVIL:       "civil",
+    CaseType.HUMAN_RIGHTS:"human_rights",
+    CaseType.UNKNOWN:     "general",
+}
 
 
 class LegalKnowledgeRetriever:
     """
-    Retrieves relevant statutes and legal rights for a given case.
-
-    Priority order:
-      1. Live API query (CourtListener, GovInfo, EUR-Lex)
-      2. Offline statute database (works without internet)
-      3. Universal human rights (always applies)
-
-    ALWAYS cites real statutes. Never makes up case law.
+    Retrieves statutes for a given case from 100-case YAML database.
+    Add new countries/case types by editing jurisdictions.yaml only.
     """
 
     def __init__(self):
         self.client = httpx.AsyncClient(timeout=15)
 
-    async def _query_courtlistener(self, query: str, jurisdiction: str) -> list[StatuteResult]:
-        """Query CourtListener free API for relevant opinions."""
+    async def _query_courtlistener(self, query: str, jurisdiction: str) -> list[LegalRight]:
         results = []
         try:
-            params = {
-                "q": query,
-                "type": "o",
-                "order_by": "score desc",
-                "stat_Precedential": "on",
-            }
-            resp = await self.client.get(f"{COURTLISTENER_BASE}/search/", params=params)
-            data = resp.json()
-
-            for hit in data.get("results", [])[:3]:
-                results.append(StatuteResult(
-                    title=hit.get("caseName", ""),
-                    text=hit.get("snippet", ""),
-                    citation=hit.get("citation", ""),
-                    source="CourtListener",
-                    url=f"https://www.courtlistener.com{hit.get('absolute_url', '')}",
+            resp = await self.client.get(f"{COURTLISTENER_BASE}/search/",
+                params={"q": query, "type": "o", "order_by": "score desc", "stat_Precedential": "on"})
+            for hit in resp.json().get("results", [])[:2]:
+                results.append(LegalRight(
+                    right=hit.get("caseName", ""),
+                    statute=hit.get("citation", ""),
                     jurisdiction=jurisdiction,
-                    relevance_score=float(hit.get("score", 0)),
+                    source_url=f"https://www.courtlistener.com{hit.get('absolute_url', '')}",
+                    plain_english=hit.get("snippet", "")[:200],
                 ))
         except Exception as e:
-            print(f"[Retriever] CourtListener query failed: {e}")
+            print(f"[Retriever] CourtListener failed: {e}")
         return results
 
-    def _get_offline_rights(self, country: str, case_type: CaseType) -> list[LegalRight]:
-        """Get rights from offline statute database."""
-        key = (country, case_type)
-        rights = OFFLINE_STATUTES.get(key, [])
+    def _get_local_rights(self, country: str, case_type: CaseType) -> list[LegalRight]:
+        ct_str = ENUM_TO_STR.get(case_type, "general")
 
-        # Try parent jurisdiction (e.g. "PK-SD" -> "PK")
+        # Try exact match
+        rights = _STATUTE_DB.get((country, ct_str), [])
+        if rights:
+            return rights
+
+        # Also try debt and employment_discrimination for CIVIL/LABOR
+        if case_type == CaseType.CIVIL:
+            rights = _STATUTE_DB.get((country, "debt"), [])
+        elif case_type == CaseType.LABOR:
+            rights = _STATUTE_DB.get((country, "employment_discrimination"), [])
+            base = _STATUTE_DB.get((country, "labor"), [])
+            return base + rights
+
+        # Parent jurisdiction fallback
         if not rights and "-" in country:
             parent = country.split("-")[0]
-            rights = OFFLINE_STATUTES.get((parent, case_type), [])
+            rights = _STATUTE_DB.get((parent, ct_str), [])
 
         return rights
 
     async def retrieve(self, case) -> list[LegalRight]:
-        """
-        Main retrieval method. Returns list of relevant legal rights with citations.
-        """
-        from intake.base import LegalCase
         rights = []
 
-        # 1. Offline jurisdiction-specific statutes
-        offline = self._get_offline_rights(case.country, case.case_type)
-        rights.extend(offline)
+        # 1. Local statutes from YAML
+        local = self._get_local_rights(case.country, case.case_type)
+        rights.extend(local)
 
-        # 2. Universal rights always included
-        rights.extend(UNIVERSAL_RIGHTS[:2])
+        # 2. Correct international law for this case type
+        intl = UNIVERSAL_RIGHTS.get(case.case_type, UNIVERSAL_RIGHTS[CaseType.UNKNOWN])
+        needed = max(0, 4 - len(rights))
+        rights.extend(intl[:needed])
 
-        # 3. Live CourtListener query (US cases)
-        if case.country == "US":
-            query = f"{case.case_type.value} {' '.join(case.key_facts[:2])}"
-            live_results = await self._query_courtlistener(query, case.jurisdiction)
-            for r in live_results:
-                rights.append(LegalRight(
-                    right=r.title,
-                    statute=r.citation,
-                    jurisdiction=r.jurisdiction,
-                    source_url=r.url,
-                    plain_english=r.text[:200],
-                ))
+        # 3. Live CourtListener for US cases
+        if case.country == "US" and len(rights) < 5:
+            query = f"{ENUM_TO_STR.get(case.case_type, '')} {' '.join(case.key_facts[:2])}"
+            rights.extend(await self._query_courtlistener(query, case.jurisdiction))
 
-        print(f"[Retriever] Found {len(rights)} relevant rights/statutes for {case.country} {case.case_type.value}")
+        ct_str = ENUM_TO_STR.get(case.case_type, "?")
+        print(f"[Retriever] {len(rights)} statutes → {case.country}/{ct_str} "
+              f"({len(local)} local + {min(len(intl), needed)} intl)")
         return rights
 
     async def close(self):
