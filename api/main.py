@@ -26,6 +26,9 @@ try:
 except Exception as e:
     print(f"[API] Route warning: {e}")
 
+from api.routes.auth import router as auth_router
+app.include_router(auth_router)
+
 @app.get("/")
 def root():
     return {"status": "LEXSWARM API running", "version": "1.0.0"}
