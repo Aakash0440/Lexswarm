@@ -61,6 +61,16 @@ class LegalCase:
     human_volunteer_alerted: bool = False
     metadata: dict = field(default_factory=dict)
 
+    # ── Specialist flags — set by classifier, consumed by retriever ──────────
+    is_stateless: bool = False           # no nationality/documents → intl law only
+    involves_minor: bool = False         # person under 18 → CRC statutes
+    deportation_risk: bool = False       # imminent removal → non-refoulement
+    trafficking_indicators: bool = False # passport + unpaid + no movement triad
+    child_abduction: bool = False        # children taken without consent
+    retrieval_confidence: float = 1.0   # set by retriever — < 0.5 = low coverage
+    mandate_human_lawyer: bool = False   # forces lawyer escalation regardless of urgency
+    flags: list = field(default_factory=list)  # free-form pipeline flags
+
 
 @dataclass
 class LegalDocument:
