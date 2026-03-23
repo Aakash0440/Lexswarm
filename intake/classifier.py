@@ -1,6 +1,6 @@
 # intake/classifier.py
 # Multilingual case intake — detects language, jurisdiction, case type, urgency
-# Supports 50+ countries with native script city detection
+# Supports 80+ countries with native script city detection
 # No API key required for core classification
 
 import re
@@ -10,157 +10,271 @@ from intake.base import LegalCase, CaseType, UrgencyLevel, CaseStatus
 
 
 # ── Native script city → ISO country code ─────────────────────────────────────
-# Covers 50+ countries. Checked against city names in their own scripts.
-# Add new entries here only — no other code changes needed.
 
 NATIVE_SCRIPT_CITIES = {
 
     # ── URDU — Pakistan ──────────────────────────────────────────────────────
-    "اسلام آباد": "PK",   # Islamabad
-    "کراچی":       "PK",   # Karachi
-    "لاہور":       "PK",   # Lahore
-    "پشاور":       "PK",   # Peshawar
-    "کوئٹہ":       "PK",   # Quetta
-    "فیصل آباد":   "PK",   # Faisalabad
-    "راولپنڈی":    "PK",   # Rawalpindi
-    "ملتان":       "PK",   # Multan
-    "حیدرآباد":    "PK",   # Hyderabad (PK)
-    "پاکستان":     "PK",   # Pakistan
+    "اسلام آباد": "PK",
+    "کراچی":       "PK",
+    "لاہور":       "PK",
+    "پشاور":       "PK",
+    "کوئٹہ":       "PK",
+    "فیصل آباد":   "PK",
+    "راولپنڈی":    "PK",
+    "ملتان":       "PK",
+    "حیدرآباد":    "PK",
+    "گوجرانوالہ":  "PK",
+    "سیالکوٹ":     "PK",
+    "بہاولپور":    "PK",
+    "پاکستان":     "PK",
 
     # ── BENGALI — Bangladesh ─────────────────────────────────────────────────
-    "ঢাকা":        "BD",   # Dhaka
-    "চট্টগ্রাম":   "BD",   # Chittagong
-    "সিলেট":       "BD",   # Sylhet
-    "রাজশাহী":     "BD",   # Rajshahi
-    "খুলনা":       "BD",   # Khulna
-    "বরিশাল":      "BD",   # Barisal
-    "কক্সবাজার":   "BD",   # Cox's Bazar
-    "বাংলাদেশ":    "BD",   # Bangladesh
+    "ঢাকা":        "BD",
+    "চট্টগ্রাম":   "BD",
+    "সিলেট":       "BD",
+    "রাজশাহী":     "BD",
+    "খুলনা":       "BD",
+    "বরিশাল":      "BD",
+    "কক্সবাজার":   "BD",
+    "ময়মনসিংহ":   "BD",
+    "নারায়ণগঞ্জ": "BD",
+    "গাজীপুর":     "BD",
+    "বাংলাদেশ":    "BD",
+
+    # ── BENGALI — India (West Bengal) ────────────────────────────────────────
+    "কলকাতা":      "IN",
+    "দার্জিলিং":   "IN",
 
     # ── HINDI — India ────────────────────────────────────────────────────────
-    "दिल्ली":      "IN",   # Delhi
-    "मुंबई":       "IN",   # Mumbai
-    "बेंगलुरु":    "IN",   # Bangalore
-    "कोलकाता":     "IN",   # Kolkata
-    "चेन्नई":      "IN",   # Chennai
-    "हैदराबाद":    "IN",   # Hyderabad (IN)
-    "पुणे":        "IN",   # Pune
-    "अहमदाबाद":    "IN",   # Ahmedabad
-    "जयपुर":       "IN",   # Jaipur
-    "भारत":        "IN",   # India
+    "दिल्ली":      "IN",
+    "नई दिल्ली":   "IN",
+    "मुंबई":       "IN",
+    "बेंगलुरु":    "IN",
+    "कोलकाता":     "IN",
+    "चेन्नई":      "IN",
+    "हैदराबाद":    "IN",
+    "पुणे":        "IN",
+    "अहमदाबाद":    "IN",
+    "जयपुर":       "IN",
+    "सूरत":        "IN",
+    "लखनऊ":        "IN",
+    "कानपुर":      "IN",
+    "नागपुर":      "IN",
+    "पटना":        "IN",
+    "इंदौर":       "IN",
+    "भोपाल":       "IN",
+    "विशाखापट्टनम": "IN",
+    "भारत":        "IN",
 
-    # ── ARABIC — Multiple countries ───────────────────────────────────────────
-    # Saudi Arabia
-    "الرياض":      "SA",   # Riyadh
-    "جدة":         "SA",   # Jeddah
-    "مكة":         "SA",   # Mecca
-    "المدينة":     "SA",   # Medina
-    "الدمام":      "SA",   # Dammam
-    # UAE
-    "دبي":         "AE",   # Dubai
-    "أبوظبي":      "AE",   # Abu Dhabi
-    "الشارقة":     "AE",   # Sharjah
-    # Egypt
-    "القاهرة":     "EG",   # Cairo
-    "الإسكندرية":  "EG",   # Alexandria
-    "مصر":         "EG",   # Egypt
-    # Iraq
-    "بغداد":       "IQ",   # Baghdad
-    "البصرة":      "IQ",   # Basra
-    # Jordan
-    "عمّان":       "JO",   # Amman
-    # Lebanon
-    "بيروت":       "LB",   # Beirut
-    # Morocco
-    "الرباط":      "MA",   # Rabat
-    "الدار البيضاء": "MA", # Casablanca
-    "مراكش":       "MA",   # Marrakech
-    # Algeria
-    "الجزائر":     "DZ",   # Algiers
-    # Tunisia
-    "تونس":        "TN",   # Tunis
-    # Libya
-    "طرابلس":      "LY",   # Tripoli
-    # Sudan
-    "الخرطوم":     "SD",   # Khartoum
-    # Syria
-    "دمشق":        "SY",   # Damascus
-    "حلب":         "SY",   # Aleppo
-    # Yemen
-    "صنعاء":       "YE",   # Sanaa
-    # Kuwait
-    "الكويت":      "KW",   # Kuwait City
-    # Qatar
-    "الدوحة":      "QA",   # Doha
-    # Bahrain
-    "المنامة":     "BH",   # Manama
-    # Oman
-    "مسقط":        "OM",   # Muscat
+    # ── ARABIC — Saudi Arabia ─────────────────────────────────────────────────
+    "الرياض":      "SA",
+    "جدة":         "SA",
+    "مكة":         "SA",
+    "المدينة":     "SA",
+    "الدمام":      "SA",
+    "الخبر":       "SA",
+    "تبوك":        "SA",
+    "أبها":        "SA",
+    "المملكة العربية السعودية": "SA",
+
+    # ── ARABIC — UAE ─────────────────────────────────────────────────────────
+    "دبي":         "AE",
+    "أبوظبي":      "AE",
+    "الشارقة":     "AE",
+    "عجمان":       "AE",
+    "رأس الخيمة":  "AE",
+    "الفجيرة":     "AE",
+    "الإمارات":    "AE",
+
+    # ── ARABIC — Egypt ───────────────────────────────────────────────────────
+    "القاهرة":     "EG",
+    "الإسكندرية":  "EG",
+    "الجيزة":      "EG",
+    "الإسماعيلية": "EG",
+    "بورسعيد":     "EG",
+    "مصر":         "EG",
+
+    # ── ARABIC — Iraq ────────────────────────────────────────────────────────
+    "بغداد":       "IQ",
+    "البصرة":      "IQ",
+    "الموصل":      "IQ",
+    "أربيل":       "IQ",
+    "النجف":       "IQ",
+    "كربلاء":      "IQ",
+
+    # ── ARABIC — Jordan ──────────────────────────────────────────────────────
+    "عمّان":       "JO",
+    "الزرقاء":     "JO",
+    "إربد":        "JO",
+
+    # ── ARABIC — Lebanon ─────────────────────────────────────────────────────
+    "بيروت":       "LB",
+    "طرابلس":      "LB",
+    "صيدا":        "LB",
+
+    # ── ARABIC — Morocco ─────────────────────────────────────────────────────
+    "الرباط":      "MA",
+    "الدار البيضاء": "MA",
+    "مراكش":       "MA",
+    "فاس":         "MA",
+    "أكادير":      "MA",
+    "المغرب":      "MA",
+
+    # ── ARABIC — Algeria ─────────────────────────────────────────────────────
+    "الجزائر":     "DZ",
+    "وهران":       "DZ",
+    "قسنطينة":     "DZ",
+
+    # ── ARABIC — Tunisia ─────────────────────────────────────────────────────
+    "تونس":        "TN",
+    "صفاقس":       "TN",
+    "سوسة":        "TN",
+
+    # ── ARABIC — Libya ───────────────────────────────────────────────────────
+    "طرابلس":      "LY",
+    "بنغازي":      "LY",
+
+    # ── ARABIC — Sudan ───────────────────────────────────────────────────────
+    "الخرطوم":     "SD",
+    "أم درمان":    "SD",
+    "بورتسودان":   "SD",
+
+    # ── ARABIC — Syria ───────────────────────────────────────────────────────
+    "دمشق":        "SY",
+    "حلب":         "SY",
+    "حمص":         "SY",
+    "اللاذقية":    "SY",
+
+    # ── ARABIC — Yemen ───────────────────────────────────────────────────────
+    "صنعاء":       "YE",
+    "عدن":         "YE",
+    "تعز":         "YE",
+
+    # ── ARABIC — Kuwait / Qatar / Bahrain / Oman ─────────────────────────────
+    "الكويت":      "KW",
+    "الدوحة":      "QA",
+    "المنامة":     "BH",
+    "مسقط":        "OM",
+    "صلالة":       "OM",
+
+    # ── ARABIC — Palestine ───────────────────────────────────────────────────
+    "غزة":         "PS",
+    "رام الله":    "PS",
+    "الضفة الغربية": "PS",
 
     # ── PERSIAN/FARSI — Iran ─────────────────────────────────────────────────
-    "تهران":       "IR",   # Tehran
-    "مشهد":        "IR",   # Mashhad
-    "اصفهان":      "IR",   # Isfahan
-    "ایران":       "IR",   # Iran
+    "تهران":       "IR",
+    "مشهد":        "IR",
+    "اصفهان":      "IR",
+    "تبریز":       "IR",
+    "شیراز":       "IR",
+    "اهواز":       "IR",
+    "ایران":       "IR",
+
+    # ── DARI/PASHTO — Afghanistan ────────────────────────────────────────────
+    "کابل":        "AF",
+    "قندهار":      "AF",
+    "هرات":        "AF",
+    "مزار شریف":   "AF",
+    "افغانستان":   "AF",
 
     # ── TURKISH — Turkey ─────────────────────────────────────────────────────
-    "İstanbul":    "TR",   # Istanbul
-    "Ankara":      "TR",   # Ankara
-    "İzmir":       "TR",   # Izmir
-    "Türkiye":     "TR",   # Turkey
+    "İstanbul":    "TR",
+    "Ankara":      "TR",
+    "İzmir":       "TR",
+    "Bursa":       "TR",
+    "Adana":       "TR",
+    "Antalya":     "TR",
+    "Gaziantep":   "TR",
+    "Konya":       "TR",
+    "Türkiye":     "TR",
 
-    # ── RUSSIAN — Russia & CIS ───────────────────────────────────────────────
-    "Москва":      "RU",   # Moscow
-    "Санкт-Петербург": "RU", # Saint Petersburg
-    "Новосибирск": "RU",   # Novosibirsk
-    "Россия":      "RU",   # Russia
-    "Київ":        "UA",   # Kyiv
-    "Харків":      "UA",   # Kharkiv
-    "Одеса":       "UA",   # Odessa
-    "Україна":     "UA",   # Ukraine
-    "Мінск":       "BY",   # Minsk
-    "Алматы":      "KZ",   # Almaty
-    "Астана":      "KZ",   # Astana
-    "Ташкент":     "UZ",   # Tashkent
+    # ── RUSSIAN — Russia ─────────────────────────────────────────────────────
+    "Москва":      "RU",
+    "Санкт-Петербург": "RU",
+    "Новосибирск": "RU",
+    "Екатеринбург":"RU",
+    "Казань":      "RU",
+    "Нижний Новгород": "RU",
+    "Красноярск":  "RU",
+    "Россия":      "RU",
+
+    # ── UKRAINIAN ────────────────────────────────────────────────────────────
+    "Київ":        "UA",
+    "Харків":      "UA",
+    "Одеса":       "UA",
+    "Дніпро":      "UA",
+    "Запоріжжя":   "UA",
+    "Львів":       "UA",
+    "Україна":     "UA",
+
+    # ── BELARUSIAN ───────────────────────────────────────────────────────────
+    "Мінск":       "BY",
+    "Гомель":      "BY",
+
+    # ── KAZAKH ───────────────────────────────────────────────────────────────
+    "Алматы":      "KZ",
+    "Астана":      "KZ",
+    "Шымкент":     "KZ",
+
+    # ── UZBEK ────────────────────────────────────────────────────────────────
+    "Ташкент":     "UZ",
+    "Самарқанд":   "UZ",
+    "Наманган":    "UZ",
 
     # ── CHINESE — China ───────────────────────────────────────────────────────
-    "北京":        "CN",   # Beijing
-    "上海":        "CN",   # Shanghai
-    "广州":        "CN",   # Guangzhou
-    "深圳":        "CN",   # Shenzhen
-    "成都":        "CN",   # Chengdu
-    "武汉":        "CN",   # Wuhan
-    "西安":        "CN",   # Xi'an
-    "中国":        "CN",   # China
-    "香港":        "HK",   # Hong Kong
-    "台北":        "TW",   # Taipei
-    "澳門":        "MO",   # Macau
+    "北京":        "CN",
+    "上海":        "CN",
+    "广州":        "CN",
+    "深圳":        "CN",
+    "成都":        "CN",
+    "武汉":        "CN",
+    "西安":        "CN",
+    "重庆":        "CN",
+    "杭州":        "CN",
+    "南京":        "CN",
+    "天津":        "CN",
+    "中国":        "CN",
+    "香港":        "HK",
+    "台北":        "TW",
+    "高雄":        "TW",
+    "澳門":        "MO",
 
-    # ── JAPANESE — Japan ─────────────────────────────────────────────────────
-    "東京":        "JP",   # Tokyo
-    "大阪":        "JP",   # Osaka
-    "名古屋":      "JP",   # Nagoya
-    "札幌":        "JP",   # Sapporo
-    "日本":        "JP",   # Japan
+    # ── JAPANESE ─────────────────────────────────────────────────────────────
+    "東京":        "JP",
+    "大阪":        "JP",
+    "名古屋":      "JP",
+    "札幌":        "JP",
+    "福岡":        "JP",
+    "神戸":        "JP",
+    "京都":        "JP",
+    "横浜":        "JP",
+    "日本":        "JP",
 
-    # ── KOREAN — South Korea ─────────────────────────────────────────────────
-    "서울":        "KR",   # Seoul
-    "부산":        "KR",   # Busan
-    "인천":        "KR",   # Incheon
-    "한국":        "KR",   # South Korea
+    # ── KOREAN ───────────────────────────────────────────────────────────────
+    "서울":        "KR",
+    "부산":        "KR",
+    "인천":        "KR",
+    "대구":        "KR",
+    "대전":        "KR",
+    "광주":        "KR",
+    "한국":        "KR",
 
-    # ── THAI — Thailand ──────────────────────────────────────────────────────
-    "กรุงเทพ":     "TH",   # Bangkok
-    "เชียงใหม่":   "TH",   # Chiang Mai
-    "ไทย":         "TH",   # Thailand
+    # ── THAI ─────────────────────────────────────────────────────────────────
+    "กรุงเทพ":     "TH",
+    "เชียงใหม่":   "TH",
+    "พัทยา":       "TH",
+    "ภูเก็ต":      "TH",
+    "ไทย":         "TH",
 
-    # ── VIETNAMESE — Vietnam ─────────────────────────────────────────────────
-    "Hà Nội":      "VN",   # Hanoi
-    "Hồ Chí Minh": "VN",  # Ho Chi Minh City
-    "Đà Nẵng":     "VN",   # Da Nang
-    "Việt Nam":    "VN",   # Vietnam
+    # ── VIETNAMESE ───────────────────────────────────────────────────────────
+    "Hà Nội":      "VN",
+    "Hồ Chí Minh": "VN",
+    "Đà Nẵng":     "VN",
+    "Cần Thơ":     "VN",
+    "Việt Nam":    "VN",
 
-    # ── INDONESIAN — Indonesia ───────────────────────────────────────────────
+    # ── INDONESIAN ───────────────────────────────────────────────────────────
     "Jakarta":     "ID",
     "Surabaya":    "ID",
     "Bandung":     "ID",
@@ -168,135 +282,361 @@ NATIVE_SCRIPT_CITIES = {
     "Semarang":    "ID",
     "Makassar":    "ID",
     "Palembang":   "ID",
+    "Tangerang":   "ID",
+    "Depok":       "ID",
+    "Bekasi":      "ID",
     "Indonesia":   "ID",
 
     # ── TAGALOG — Philippines ────────────────────────────────────────────────
-    "Maynila":     "PH",   # Manila in Tagalog
+    "Maynila":     "PH",
     "Cebu":        "PH",
     "Davao":       "PH",
     "Quezon City": "PH",
-    "Pilipinas":   "PH",   # Philippines in Tagalog
+    "Zamboanga":   "PH",
+    "Antipolo":    "PH",
+    "Pilipinas":   "PH",
 
-    # ── SWAHILI — Kenya / Tanzania ───────────────────────────────────────────
+    # ── SWAHILI — Kenya ──────────────────────────────────────────────────────
     "Nairobi":     "KE",
     "Mombasa":     "KE",
     "Kisumu":      "KE",
     "Nakuru":      "KE",
+    "Eldoret":     "KE",
+
+    # ── SWAHILI — Tanzania ───────────────────────────────────────────────────
     "Dar es Salaam": "TZ",
     "Dodoma":      "TZ",
     "Zanzibar":    "TZ",
+    "Mwanza":      "TZ",
+    "Arusha":      "TZ",
+
+    # ── SWAHILI — Uganda ─────────────────────────────────────────────────────
+    "Kampala":     "UG",
+    "Gulu":        "UG",
+    "Mbarara":     "UG",
 
     # ── AMHARIC — Ethiopia ───────────────────────────────────────────────────
-    "አዲስ አበባ":    "ET",   # Addis Ababa
-    "ድሬዳዋ":       "ET",   # Dire Dawa
-    "ኢትዮጵያ":      "ET",   # Ethiopia
+    "አዲስ አበባ":    "ET",
+    "ድሬዳዋ":       "ET",
+    "ጎንደር":       "ET",
+    "ሐዋሳ":        "ET",
+    "ኢትዮጵያ":      "ET",
+
+    # ── TIGRINYA — Eritrea ───────────────────────────────────────────────────
+    "ኣስመራ":       "ER",   # Asmara
+
+    # ── SOMALI — Somalia ─────────────────────────────────────────────────────
+    "Muqdisho":    "SO",   # Mogadishu
+    "Hargeysa":    "SO",
+    "Berbera":     "SO",
 
     # ── ZULU / XHOSA / AFRIKAANS — South Africa ─────────────────────────────
-    "eThekwini":   "ZA",   # Durban in Zulu
-    "iGoli":       "ZA",   # Johannesburg in Zulu
-    "iKapa":       "ZA",   # Cape Town in Xhosa
-    "Tshwane":     "ZA",   # Pretoria
-    "Johannesburg":"ZA",
-    "Cape Town":   "ZA",
-    "Durban":      "ZA",
-    "Pretoria":    "ZA",
+    "eThekwini":        "ZA",
+    "iGoli":            "ZA",
+    "eGoli":            "ZA",
+    "iKapa":            "ZA",
+    "eKapa":            "ZA",
+    "iNingizimu Afrika":"ZA",
+    "eNingizimu Afrika":"ZA",
+    "uMgungundlovu":    "ZA",
+    "eMalahleni":       "ZA",
+    "Tshwane":          "ZA",
+    "Johannesburg":     "ZA",
+    "Cape Town":        "ZA",
+    "Durban":           "ZA",
+    "Pretoria":         "ZA",
+    "Port Elizabeth":   "ZA",
+    "Bloemfontein":     "ZA",
 
     # ── HAUSA / YORUBA / IGBO — Nigeria ──────────────────────────────────────
-    "Èkó":         "NG",   # Lagos in Yoruba
+    "Èkó":         "NG",
     "Abuja":       "NG",
     "Lagos":       "NG",
     "Kano":        "NG",
     "Ibadan":      "NG",
     "Port Harcourt": "NG",
+    "Benin City":  "NG",
+    "Enugu":       "NG",
+    "Kaduna":      "NG",
+    "Aba":         "NG",
 
-    # ── FRENCH — France / Canada / West Africa ───────────────────────────────
+    # ── AKAN / TWI — Ghana ───────────────────────────────────────────────────
+    "Accra":       "GH",
+    "Kumasi":      "GH",
+    "Tamale":      "GH",
+    "Sekondi":     "GH",
+
+    # ── KINYARWANDA — Rwanda ─────────────────────────────────────────────────
+    "Kigali":      "RW",
+    "Butare":      "RW",
+
+    # ── KIRUNDI — Burundi ────────────────────────────────────────────────────
+    "Bujumbura":   "BI",
+    "Gitega":      "BI",
+
+    # ── FRENCH — France ──────────────────────────────────────────────────────
     "Paris":       "FR",
     "Lyon":        "FR",
     "Marseille":   "FR",
+    "Toulouse":    "FR",
+    "Nice":        "FR",
+    "Bordeaux":    "FR",
+    "Lille":       "FR",
+    "Strasbourg":  "FR",
+
+    # ── FRENCH — Canada ──────────────────────────────────────────────────────
     "Montréal":    "CA",
     "Québec":      "CA",
-    "Dakar":       "SN",   # Senegal
-    "Abidjan":     "CI",   # Côte d'Ivoire
-    "Bamako":      "ML",   # Mali
-    "Ouagadougou": "BF",   # Burkina Faso
-    "Lomé":        "TG",   # Togo
-    "Cotonou":     "BJ",   # Benin
-    "Niamey":      "NE",   # Niger
-    "N'Djamena":   "TD",   # Chad
-    "Kinshasa":    "CD",   # DR Congo
-    "Brazzaville": "CG",   # Republic of Congo
 
-    # ── PORTUGUESE — Brazil / Portugal / Mozambique / Angola ─────────────────
+    # ── FRENCH — West Africa ─────────────────────────────────────────────────
+    "Dakar":       "SN",
+    "Abidjan":     "CI",
+    "Bamako":      "ML",
+    "Ouagadougou": "BF",
+    "Lomé":        "TG",
+    "Cotonou":     "BJ",
+    "Niamey":      "NE",
+    "N'Djamena":   "TD",
+    "Kinshasa":    "CD",
+    "Lubumbashi":  "CD",
+    "Brazzaville": "CG",
+    "Libreville":  "GA",
+    "Yaoundé":     "CM",
+    "Douala":      "CM",
+    "Bangui":      "CF",
+    "Conakry":     "GN",
+    "Bissau":      "GW",
+    "Nouakchott":  "MR",
+    "Antananarivo":"MG",
+
+    # ── PORTUGUESE — Brazil ──────────────────────────────────────────────────
     "São Paulo":   "BR",
     "Rio de Janeiro": "BR",
     "Brasília":    "BR",
     "Salvador":    "BR",
     "Fortaleza":   "BR",
+    "Belo Horizonte": "BR",
+    "Manaus":      "BR",
+    "Curitiba":    "BR",
+    "Recife":      "BR",
+    "Porto Alegre":"BR",
     "Brasil":      "BR",
-    "Lisboa":      "PT",   # Lisbon
-    "Porto":       "PT",
-    "Maputo":      "MZ",   # Mozambique
-    "Luanda":      "AO",   # Angola
 
-    # ── SPANISH — Latin America / Spain ──────────────────────────────────────
+    # ── PORTUGUESE — Portugal ────────────────────────────────────────────────
+    "Lisboa":      "PT",
+    "Porto":       "PT",
+    "Coimbra":     "PT",
+
+    # ── PORTUGUESE — Africa ──────────────────────────────────────────────────
+    "Maputo":      "MZ",
+    "Beira":       "MZ",
+    "Luanda":      "AO",
+    "Huambo":      "AO",
+    "Praia":       "CV",
+
+    # ── SPANISH — Spain ──────────────────────────────────────────────────────
     "Madrid":      "ES",
     "Barcelona":   "ES",
-    "Ciudad de México": "MX",  # Mexico City
+    "Valencia":    "ES",
+    "Sevilla":     "ES",
+    "Zaragoza":    "ES",
+    "Bilbao":      "ES",
+
+    # ── SPANISH — Mexico ─────────────────────────────────────────────────────
+    "Ciudad de México": "MX",
     "Guadalajara": "MX",
     "Monterrey":   "MX",
-    "Buenos Aires":"AR",
-    "Córdoba":     "AR",
+    "Puebla":      "MX",
+    "Tijuana":     "MX",
+    "Ciudad Juárez": "MX",
+
+    # ── SPANISH — Colombia ───────────────────────────────────────────────────
     "Bogotá":      "CO",
     "Medellín":    "CO",
+    "Cali":        "CO",
+    "Barranquilla":"CO",
+    "Cartagena":   "CO",
+
+    # ── SPANISH — Argentina ──────────────────────────────────────────────────
+    "Buenos Aires":"AR",
+    "Córdoba":     "AR",
+    "Rosario":     "AR",
+    "Mendoza":     "AR",
+
+    # ── SPANISH — Peru ───────────────────────────────────────────────────────
     "Lima":        "PE",
-    "Santiago":    "CL",
+    "Arequipa":    "PE",
+    "Trujillo":    "PE",
+
+    # ── SPANISH — Venezuela ──────────────────────────────────────────────────
     "Caracas":     "VE",
-    "La Paz":      "BO",
+    "Maracaibo":   "VE",
+    "Valencia":    "VE",
+
+    # ── SPANISH — Chile ──────────────────────────────────────────────────────
+    "Santiago":    "CL",
+    "Valparaíso":  "CL",
+
+    # ── SPANISH — Ecuador / Bolivia / Paraguay / Uruguay ─────────────────────
     "Quito":       "EC",
+    "Guayaquil":   "EC",
+    "La Paz":      "BO",
+    "Santa Cruz":  "BO",
     "Asunción":    "PY",
     "Montevideo":  "UY",
+
+    # ── SPANISH — Central America ────────────────────────────────────────────
     "San José":    "CR",
     "Ciudad de Guatemala": "GT",
     "Tegucigalpa": "HN",
+    "San Pedro Sula": "HN",
     "Managua":     "NI",
     "San Salvador":"SV",
-    "Santo Domingo": "DO",
-    "La Habana":   "CU",   # Havana
+    "Panamá":      "PA",
 
-    # ── GREEK — Greece ───────────────────────────────────────────────────────
-    "Αθήνα":       "GR",   # Athens
-    "Θεσσαλονίκη": "GR",   # Thessaloniki
-    "Ελλάδα":      "GR",   # Greece
+    # ── SPANISH — Caribbean ──────────────────────────────────────────────────
+    "Santo Domingo": "DO",
+    "La Habana":   "CU",
+    "San Juan":    "PR",
+
+    # ── GREEK ────────────────────────────────────────────────────────────────
+    "Αθήνα":       "GR",
+    "Θεσσαλονίκη": "GR",
+    "Πειραιάς":    "GR",
+    "Ελλάδα":      "GR",
 
     # ── HEBREW — Israel ──────────────────────────────────────────────────────
-    "תל אביב":     "IL",   # Tel Aviv
-    "ירושלים":     "IL",   # Jerusalem
-    "חיפה":        "IL",   # Haifa
-    "ישראל":       "IL",   # Israel
+    "תל אביב":     "IL",
+    "ירושלים":     "IL",
+    "חיפה":        "IL",
+    "באר שבע":     "IL",
+    "ישראל":       "IL",
 
     # ── SINHALA — Sri Lanka ──────────────────────────────────────────────────
-    "කොළඹ":        "LK",   # Colombo
-    "ශ්‍රී ලංකා":  "LK",   # Sri Lanka
+    "කොළඹ":        "LK",
+    "ගම්පහ":       "LK",
+    "ශ්‍රී ලංකා":  "LK",
+
+    # ── TAMIL — Sri Lanka / India ────────────────────────────────────────────
+    "கொழும்பு":    "LK",
+    "சென்னை":      "IN",
+    "கோயம்புத்தூர்": "IN",
 
     # ── MYANMAR / BURMESE ────────────────────────────────────────────────────
-    "ရန်ကုန်":     "MM",   # Yangon
-    "နေပြည်တော်":  "MM",   # Naypyidaw
-    "မန္တလေး":     "MM",   # Mandalay
-    "မြန်မာ":      "MM",   # Myanmar
-    "Rakhine":     "MM",   # Rakhine State (Rohingya context)
+    "ရန်ကုန်":     "MM",
+    "နေပြည်တော်":  "MM",
+    "မန္တလေး":     "MM",
+    "မြန်မာ":      "MM",
+    "Rakhine":     "MM",
 
     # ── KHMER — Cambodia ─────────────────────────────────────────────────────
-    "ភ្នំពេញ":     "KH",   # Phnom Penh
-    "កម្ពុជា":     "KH",   # Cambodia
+    "ភ្នំពេញ":     "KH",
+    "សៀមរាប":      "KH",
+    "កម្ពុជា":     "KH",
+
+    # ── LAO ──────────────────────────────────────────────────────────────────
+    "ວຽງຈັນ":      "LA",   # Vientiane
+    "ລາວ":         "LA",
 
     # ── NEPALI ───────────────────────────────────────────────────────────────
-    "काठमाडौं":    "NP",   # Kathmandu
-    "नेपाल":       "NP",   # Nepal
+    "काठमाडौं":    "NP",
+    "पोखरा":       "NP",
+    "ललितपुर":     "NP",
+    "नेपाल":       "NP",
+
+    # ── SINHALA / DHIVEHI — Maldives ─────────────────────────────────────────
+    "މާލެ":        "MV",   # Male
 
     # ── ROHINGYA-SPECIFIC ────────────────────────────────────────────────────
     "Cox's Bazar": "BD",
     "Teknaf":      "BD",
     "Ukhiya":      "BD",
+
+    # ── AZERBAIJANI ──────────────────────────────────────────────────────────
+    "Bakı":        "AZ",   # Baku
+    "Gəncə":       "AZ",
+
+    # ── ARMENIAN ─────────────────────────────────────────────────────────────
+    "Երևան":       "AM",   # Yerevan
+
+    # ── GEORGIAN ─────────────────────────────────────────────────────────────
+    "თბილისი":     "GE",   # Tbilisi
+    "ბათუმი":      "GE",
+
+    # ── ROMANIAN ─────────────────────────────────────────────────────────────
+    "București":   "RO",
+    "Cluj-Napoca": "RO",
+
+    # ── POLISH ───────────────────────────────────────────────────────────────
+    "Warszawa":    "PL",
+    "Kraków":      "PL",
+    "Gdańsk":      "PL",
+
+    # ── CZECH ────────────────────────────────────────────────────────────────
+    "Praha":       "CZ",
+    "Brno":        "CZ",
+
+    # ── HUNGARIAN ────────────────────────────────────────────────────────────
+    "Budapest":    "HU",
+    "Debrecen":    "HU",
+
+    # ── SERBIAN / CROATIAN ───────────────────────────────────────────────────
+    "Beograd":     "RS",
+    "Novi Sad":    "RS",
+    "Zagreb":      "HR",
+    "Split":       "HR",
+
+    # ── BULGARIAN ────────────────────────────────────────────────────────────
+    "София":       "BG",   # Sofia
+    "Пловдив":     "BG",
+
+    # ── DUTCH — Netherlands ──────────────────────────────────────────────────
+    "Amsterdam":   "NL",
+    "Rotterdam":   "NL",
+    "Den Haag":    "NL",
+
+    # ── SWEDISH / NORWEGIAN / DANISH ─────────────────────────────────────────
+    "Stockholm":   "SE",
+    "Göteborg":    "SE",
+    "Oslo":        "NO",
+    "Bergen":      "NO",
+    "København":   "DK",
+    "Aarhus":      "DK",
+
+    # ── FINNISH ──────────────────────────────────────────────────────────────
+    "Helsinki":    "FI",
+    "Tampere":     "FI",
+
+    # ── GERMAN ───────────────────────────────────────────────────────────────
+    "Berlin":      "DE",
+    "München":     "DE",
+    "Hamburg":     "DE",
+    "Frankfurt":   "DE",
+    "Köln":        "DE",
+    "Stuttgart":   "DE",
+
+    # ── ITALIAN ──────────────────────────────────────────────────────────────
+    "Roma":        "IT",
+    "Milano":      "IT",
+    "Napoli":      "IT",
+    "Torino":      "IT",
+    "Palermo":     "IT",
+
+    # ── ZIMBABWE / ZAMBIA ────────────────────────────────────────────────────
+    "Harare":      "ZW",
+    "Bulawayo":    "ZW",
+    "Lusaka":      "ZM",
+    "Ndola":       "ZM",
+
+    # ── MALAWI ───────────────────────────────────────────────────────────────
+    "Lilongwe":    "MW",
+    "Blantyre":    "MW",
+
+    # ── BOTSWANA ─────────────────────────────────────────────────────────────
+    "Gaborone":    "BW",
+
+    # ── NAMIBIA ──────────────────────────────────────────────────────────────
+    "Windhoek":    "NA",
 }
 
 
@@ -305,68 +645,76 @@ NATIVE_SCRIPT_CITIES = {
 JURISDICTION_HINTS = {
     "PK": [
         "pakistan", "lahore", "karachi", "islamabad", "peshawar", "quetta",
-        "faisalabad", "rawalpindi", "multan", "pakistani",
+        "faisalabad", "rawalpindi", "multan", "sialkot", "gujranwala",
+        "pakistani", "rupees", "pkr",
     ],
     "IN": [
         "india", "delhi", "mumbai", "bangalore", "kolkata", "chennai",
-        "hyderabad", "pune", "ahmedabad", "jaipur", "indian court",
-        "rupees", "inr",
+        "hyderabad", "pune", "ahmedabad", "jaipur", "surat", "lucknow",
+        "indian court", "rupees", "inr", "high court", "district court",
     ],
     "ID": [
         "indonesia", "jakarta", "surabaya", "bandung", "medan", "semarang",
-        "pengadilan", "indonesian", "rupiah",
+        "makassar", "tangerang", "bekasi", "pengadilan", "indonesian", "rupiah",
     ],
     "US": [
         "united states", "america", "new york", "los angeles", "chicago",
-        "houston", "atlanta", "california", "texas", "florida",
-        "federal court", "section 1983",
+        "houston", "atlanta", "california", "texas", "florida", "illinois",
+        "federal court", "section 1983", "usd", "dollars",
     ],
     "GB": [
         "england", "wales", "scotland", "uk", "united kingdom", "british",
-        "london", "manchester", "birmingham", "crown court", "pounds", "gbp",
+        "london", "manchester", "birmingham", "leeds", "glasgow", "edinburgh",
+        "crown court", "pounds", "gbp", "housing benefit",
     ],
     "NG": [
         "nigeria", "lagos", "abuja", "port harcourt", "kano", "ibadan",
-        "nigerian", "naira",
+        "enugu", "benin city", "kaduna", "aba", "nigerian", "naira",
     ],
     "BD": [
-        "bangladesh", "dhaka", "chittagong", "sylhet", "rajshahi",
-        "bangladeshi", "cox's bazar", "teknaf", "taka",
+        "bangladesh", "dhaka", "chittagong", "sylhet", "rajshahi", "khulna",
+        "bangladeshi", "cox's bazar", "teknaf", "taka", "garment",
     ],
     "ZA": [
         "south africa", "cape town", "johannesburg", "durban", "pretoria",
-        "south african", "rand",
+        "south african", "rand", "zar", "ekapa", "ethekwini", "igoli",
+        "egoli", "ikapa", "ningizimu afrika", "mzansi",
+        "umnikazi", "indlu", "abantwana",
     ],
     "KE": [
-        "kenya", "nairobi", "mombasa", "kisumu", "nakuru", "kenyan", "shilling",
+        "kenya", "nairobi", "mombasa", "kisumu", "nakuru", "eldoret",
+        "kenyan", "shilling", "kes",
     ],
     "CA": [
         "canada", "toronto", "montreal", "vancouver", "ottawa", "calgary",
-        "canadian", "ontario", "british columbia",
+        "edmonton", "winnipeg", "canadian", "ontario", "british columbia",
+        "quebec", "alberta",
     ],
     "PH": [
         "philippines", "manila", "cebu", "davao", "quezon", "philippine",
-        "filipino", "peso",
+        "filipino", "peso", "php", "ofw", "poea",
     ],
     "SA": [
         "saudi arabia", "riyadh", "jeddah", "mecca", "medina", "saudi",
-        "kafala",
+        "kafala", "sar",
     ],
     "AE": [
         "uae", "dubai", "abu dhabi", "sharjah", "emirates",
+        "united arab emirates", "aed", "dirhams",
     ],
     "EG": [
-        "egypt", "cairo", "alexandria", "egyptian",
+        "egypt", "cairo", "alexandria", "egyptian", "egp",
     ],
     "MM": [
-        "myanmar", "burma", "yangon", "rangoon", "mandalay", "rakhine", "burmese",
+        "myanmar", "burma", "yangon", "rangoon", "mandalay", "rakhine",
+        "burmese", "rohingya",
     ],
     "ET": [
-        "ethiopia", "addis ababa", "ethiopian",
+        "ethiopia", "addis ababa", "ethiopian", "birr",
     ],
     "CN": [
         "china", "beijing", "shanghai", "guangzhou", "shenzhen", "chinese",
-        "yuan", "rmb",
+        "yuan", "rmb", "cny",
     ],
     "JP": [
         "japan", "tokyo", "osaka", "nagoya", "sapporo", "japanese", "yen",
@@ -382,55 +730,88 @@ JURISDICTION_HINTS = {
     ],
     "BR": [
         "brazil", "brasil", "sao paulo", "rio de janeiro", "brasilia",
-        "brazilian", "real",
+        "brazilian", "real", "brl",
     ],
     "MX": [
-        "mexico", "ciudad de mexico", "guadalajara", "monterrey", "mexican", "peso",
+        "mexico", "ciudad de mexico", "guadalajara", "monterrey", "mexican",
+        "peso", "mxn",
     ],
     "AR": [
-        "argentina", "buenos aires", "cordoba", "argentinian",
+        "argentina", "buenos aires", "cordoba", "rosario", "argentinian",
+        "peso", "ars",
     ],
     "CO": [
-        "colombia", "bogota", "medellin", "colombian",
+        "colombia", "bogota", "medellin", "cali", "colombian", "peso",
+    ],
+    "PE": [
+        "peru", "lima", "arequipa", "peruvian", "sol",
+    ],
+    "VE": [
+        "venezuela", "caracas", "maracaibo", "venezuelan", "bolivar",
+    ],
+    "CL": [
+        "chile", "santiago", "valparaiso", "chilean", "peso",
     ],
     "TR": [
-        "turkey", "istanbul", "ankara", "izmir", "turkish", "lira",
+        "turkey", "istanbul", "ankara", "izmir", "turkish", "lira", "try",
     ],
     "IR": [
-        "iran", "tehran", "mashhad", "isfahan", "iranian", "farsi",
+        "iran", "tehran", "mashhad", "isfahan", "iranian", "farsi", "rial",
     ],
     "IQ": [
-        "iraq", "baghdad", "basra", "iraqi",
+        "iraq", "baghdad", "basra", "mosul", "iraqi", "dinar",
     ],
     "SY": [
-        "syria", "damascus", "aleppo", "syrian",
+        "syria", "damascus", "aleppo", "syrian", "pound",
+    ],
+    "AF": [
+        "afghanistan", "kabul", "kandahar", "herat", "afghan", "afghani",
+        "taliban",
     ],
     "LK": [
-        "sri lanka", "colombo", "sinhala",
+        "sri lanka", "colombo", "sinhala", "tamil", "rupee",
     ],
     "NP": [
-        "nepal", "kathmandu", "nepali",
+        "nepal", "kathmandu", "nepali", "rupee",
     ],
     "KH": [
-        "cambodia", "phnom penh", "khmer",
+        "cambodia", "phnom penh", "khmer", "riel",
     ],
     "GH": [
-        "ghana", "accra", "ghanaian", "cedi",
+        "ghana", "accra", "kumasi", "ghanaian", "cedi",
     ],
     "SN": [
-        "senegal", "dakar", "senegalese",
+        "senegal", "dakar", "senegalese", "franc",
     ],
     "CI": [
-        "ivory coast", "cote d'ivoire", "abidjan",
+        "ivory coast", "cote d'ivoire", "abidjan", "franc",
     ],
     "CD": [
-        "congo", "kinshasa", "democratic republic",
+        "congo", "kinshasa", "democratic republic", "drc", "franc",
     ],
     "MZ": [
-        "mozambique", "maputo",
+        "mozambique", "maputo", "metical",
     ],
     "AO": [
-        "angola", "luanda",
+        "angola", "luanda", "kwanza",
+    ],
+    "ZW": [
+        "zimbabwe", "harare", "bulawayo", "zimbabwean",
+    ],
+    "ZM": [
+        "zambia", "lusaka", "zambian", "kwacha",
+    ],
+    "UG": [
+        "uganda", "kampala", "ugandan", "shilling",
+    ],
+    "TZ": [
+        "tanzania", "dar es salaam", "tanzanian", "shilling",
+    ],
+    "RW": [
+        "rwanda", "kigali", "rwandan", "franc",
+    ],
+    "SO": [
+        "somalia", "mogadishu", "somali", "shilling",
     ],
     "PT": [
         "portugal", "lisboa", "lisbon", "porto", "portuguese",
@@ -454,16 +835,94 @@ JURISDICTION_HINTS = {
         "ukraine", "kyiv", "kharkiv", "odessa", "ukrainian",
     ],
     "IL": [
-        "israel", "tel aviv", "jerusalem", "haifa", "israeli",
+        "israel", "tel aviv", "jerusalem", "haifa", "israeli", "shekel",
     ],
     "GR": [
-        "greece", "athens", "thessaloniki", "greek",
+        "greece", "athens", "thessaloniki", "greek", "euro",
     ],
     "MA": [
-        "morocco", "rabat", "casablanca", "marrakech", "moroccan",
+        "morocco", "rabat", "casablanca", "marrakech", "moroccan", "dirham",
     ],
     "KZ": [
-        "kazakhstan", "almaty", "astana", "kazakh",
+        "kazakhstan", "almaty", "astana", "kazakh", "tenge",
+    ],
+    "UZ": [
+        "uzbekistan", "tashkent", "uzbek", "sum",
+    ],
+    "NL": [
+        "netherlands", "amsterdam", "rotterdam", "dutch", "holland",
+    ],
+    "BE": [
+        "belgium", "brussels", "bruxelles", "belgian",
+    ],
+    "SE": [
+        "sweden", "stockholm", "gothenburg", "swedish", "krona",
+    ],
+    "NO": [
+        "norway", "oslo", "norwegian", "krone",
+    ],
+    "DK": [
+        "denmark", "copenhagen", "danish", "krone",
+    ],
+    "FI": [
+        "finland", "helsinki", "finnish", "euro",
+    ],
+    "PL": [
+        "poland", "warsaw", "krakow", "polish", "zloty",
+    ],
+    "RO": [
+        "romania", "bucharest", "romanian", "leu",
+    ],
+    "HU": [
+        "hungary", "budapest", "hungarian", "forint",
+    ],
+    "RS": [
+        "serbia", "belgrade", "serbian", "dinar",
+    ],
+    "HR": [
+        "croatia", "zagreb", "croatian",
+    ],
+    "BG": [
+        "bulgaria", "sofia", "bulgarian", "lev",
+    ],
+    "JO": [
+        "jordan", "amman", "jordanian", "dinar",
+    ],
+    "LB": [
+        "lebanon", "beirut", "lebanese", "pound",
+    ],
+    "KW": [
+        "kuwait", "kuwaiti", "dinar",
+    ],
+    "QA": [
+        "qatar", "doha", "qatari", "riyal",
+    ],
+    "BH": [
+        "bahrain", "manama", "bahraini", "dinar",
+    ],
+    "OM": [
+        "oman", "muscat", "omani", "rial",
+    ],
+    "PS": [
+        "palestine", "gaza", "west bank", "ramallah", "palestinian",
+    ],
+    "AZ": [
+        "azerbaijan", "baku", "azerbaijani", "manat",
+    ],
+    "AM": [
+        "armenia", "yerevan", "armenian", "dram",
+    ],
+    "GE": [
+        "georgia", "tbilisi", "georgian", "lari",
+    ],
+    "BW": [
+        "botswana", "gaborone", "batswana", "pula",
+    ],
+    "NA": [
+        "namibia", "windhoek", "namibian", "dollar",
+    ],
+    "MW": [
+        "malawi", "lilongwe", "blantyre", "malawian", "kwacha",
     ],
 }
 
@@ -474,167 +933,245 @@ CASE_TYPE_KEYWORDS = {
     CaseType.HOUSING: [
         "evict", "eviction", "landlord", "tenant", "rent", "lease", "lockout",
         "lock changed", "locks changed", "threw my belongings", "nowhere to sleep",
-        "nowhere to live", "illegal entry", "habitability", "deposit",
-        "notice to quit", "mortgage", "foreclosure",
+        "nowhere to live", "habitability", "deposit", "notice to quit",
+        "mortgage", "foreclosure", "illegal entry", "forced out", "kicked out",
+        "no running water", "no electricity", "mold", "uninhabitable",
+        "section 8", "housing benefit", "council flat", "public housing",
         # Urdu
-        "مالک مکان", "کرایہ", "بے دخلی", "تالہ",
+        "مالک مکان", "کرایہ", "بے دخلی", "تالہ", "گھر سے نکال",
         # Bengali
-        "বাড়িওয়ালা", "ভাড়া", "উচ্ছেদ", "তালা",
+        "বাড়িওয়ালা", "ভাড়া", "উচ্ছেদ", "তালা", "বাড়ি থেকে বের",
         # Hindi
-        "मकान मालिक", "किराया", "बेदखल",
+        "मकान मालिक", "किराया", "बेदखल", "घर से निकाल",
         # Arabic
-        "مالك", "إيجار", "إخلاء",
+        "مالك العقار", "إيجار", "إخلاء", "طرد من المنزل",
         # Indonesian
-        "sewa", "penggusuran", "pemilik rumah",
+        "sewa", "penggusuran", "pemilik rumah", "dikosongkan", "diusir",
         # Swahili
-        "mwenye nyumba", "kodi", "kufukuzwa",
+        "mwenye nyumba", "kodi", "kufukuzwa nyumba", "kupigwa nje",
         # French
-        "propriétaire", "loyer", "expulsion",
+        "propriétaire", "loyer", "expulsion", "logement", "locataire",
         # Spanish
-        "arrendador", "alquiler", "desalojo",
+        "arrendador", "alquiler", "desalojo", "inquilino", "propietario",
         # Portuguese
-        "senhorio", "aluguel", "despejo",
+        "senhorio", "aluguel", "despejo", "inquilino",
         # Russian
-        "арендодатель", "аренда", "выселение",
+        "арендодатель", "аренда", "выселение", "квартира",
+        # Zulu/Xhosa
+        "umnikazi wendlu", "ikhaya", "ukukhishwa",
+        # Yoruba
+        "onile", "iyalo",
+        # Turkish
+        "ev sahibi", "kira", "tahliye",
     ],
     CaseType.CRIMINAL: [
         "arrest", "arrested", "police", "charge", "criminal", "prison", "jail",
         "bail", "accused", "sentence", "detention", "detained", "custody",
-        "interrogation", "absconding",
+        "interrogation", "absconding", "warrant", "handcuffed", "locked up",
+        "police brutality", "false arrest", "wrongful conviction",
         # Urdu
-        "گرفتار", "پولیس", "حراست", "ضمانت",
+        "گرفتار", "پولیس", "حراست", "ضمانت", "جیل", "قید",
         # Bengali
-        "গ্রেফতার", "পুলিশ", "আটক",
+        "গ্রেফতার", "পুলিশ", "আটক", "জেল", "কারাগার",
         # Hindi
-        "गिरफ्तार", "पुलिस", "हिरासत",
+        "गिरफ्तार", "पुलिस", "हिरासत", "जेल", "कारागार",
         # Arabic
-        "اعتقال", "شرطة", "احتجاز",
+        "اعتقال", "شرطة", "احتجاز", "سجن", "كفالة",
         # Indonesian
-        "ditahan", "polisi", "ditangkap", "penjara",
+        "ditahan", "polisi", "ditangkap", "penjara", "penahanan",
         # Swahili
-        "kukamatwa", "polisi", "kizuizini",
+        "kukamatwa", "polisi", "kizuizini", "gerezani", "dhamana",
         # French
-        "arrestation", "police", "détention",
+        "arrestation", "police", "détention", "prison", "garde à vue",
         # Spanish
-        "arresto", "policía", "detención",
+        "arresto", "policía", "detención", "prisión", "fianza",
+        # Portuguese
+        "prisão", "detido", "polícia", "fiança",
         # Russian
-        "арест", "полиция", "задержание",
+        "арест", "полиция", "задержание", "тюрьма", "залог",
         # Turkish
-        "tutuklandım", "polis", "gözaltı",
+        "tutuklandım", "polis", "gözaltı", "hapis", "kefalet",
+        # Zulu
+        "ukubopha", "amaphoyisa",
+        # Hausa
+        "daurin", "sanda",
     ],
     CaseType.LABOR: [
         "employer", "fired", "wrongful termination", "wage", "salary", "unpaid",
         "workplace", "discrimination", "harassment", "union", "overtime",
         "not paid", "haven't paid", "hasn't paid", "placement fee",
-        "recruitment agency", "domestic worker",
+        "recruitment agency", "domestic worker", "work permit", "work visa",
+        "constructive dismissal", "redundancy", "unfair dismissal",
+        "minimum wage", "payslip", "employment contract",
         # Urdu
-        "ملازمت", "تنخواہ", "ملازم", "نوکری",
+        "ملازمت", "تنخواہ", "ملازم", "نوکری", "برطرف", "اجرت",
         # Bengali
-        "নিয়োগকর্তা", "বেতন", "চাকরি", "মজুরি",
+        "নিয়োগকর্তা", "বেতন", "চাকরি", "মজুরি", "বরখাস্ত", "ছাঁটাই",
         # Hindi
-        "नियोक्ता", "वेतन", "नौकरी", "मजदूरी",
+        "नियोक्ता", "वेतन", "नौकरी", "मजदूरी", "बर्खास्त",
         # Arabic
-        "صاحب العمل", "راتب", "أجر", "فصل",
+        "صاحب العمل", "راتب", "أجر", "فصل من العمل", "عمالة",
         # Indonesian
-        "pemecatan", "upah", "majikan", "gaji", "PHK",
+        "pemecatan", "upah", "majikan", "gaji", "PHK", "pesangon", "buruh",
         # Swahili
-        "mwajiri", "mshahara", "kufukuzwa kazi",
+        "mwajiri", "mshahara", "kufukuzwa kazi", "mkataba wa kazi",
         # French
-        "employeur", "salaire", "licenciement",
+        "employeur", "salaire", "licenciement", "travailleur", "contrat",
         # Spanish
-        "empleador", "salario", "despido",
+        "empleador", "salario", "despido", "trabajador", "contrato laboral",
         # Portuguese
-        "empregador", "salário", "demissão",
+        "empregador", "salário", "demissão", "trabalhador",
         # Russian
-        "работодатель", "зарплата", "увольнение",
+        "работодатель", "зарплата", "увольнение", "трудовой договор",
+        # Turkish
+        "işveren", "maaş", "işten çıkarma", "ücret",
+        # Zulu
+        "umqashi", "iholo", "ukuxoshwa",
+        # Tagalog
+        "employer", "sahod", "tinanggal",
     ],
     CaseType.FAMILY: [
         "divorce", "custody", "child", "domestic violence", "abuse", "alimony",
         "marriage", "husband", "wife", "children taken", "took my children",
-        "took the children", "talaq", "mehr", "maintenance",
+        "took the children", "talaq", "mehr", "maintenance", "restraining order",
+        "child support", "paternity", "adoption", "forced marriage",
         # Urdu
         "طلاق", "بچہ", "گھریلو تشدد", "بچے", "شوہر", "بیوی", "نان نفقہ",
+        "خلع", "حضانت",
         # Bengali
-        "তালাক", "সন্তান", "গৃহহিংসা", "স্বামী", "স্ত্রী",
+        "তালাক", "সন্তান", "গৃহহিংসা", "স্বামী", "স্ত্রী", "বাচ্চা",
         # Hindi
-        "तलाक", "बच्चे", "घरेलू हिंसा", "पति", "पत्नी",
+        "तलाक", "बच्चे", "घरेलू हिंसा", "पति", "पत्नी", "गुजारा भत्ता",
         # Arabic
-        "طلاق", "حضانة", "عنف أسري", "زوج", "زوجة",
+        "طلاق", "حضانة", "عنف أسري", "زوج", "زوجة", "نفقة", "خلع",
         # Indonesian
         "perceraian", "hak asuh", "kekerasan rumah tangga", "suami", "istri",
+        "cerai", "nafkah",
         # Swahili
-        "talaka", "mtoto", "ukatili wa nyumbani",
+        "talaka", "mtoto", "ukatili wa nyumbani", "mke", "mume", "matunzo",
         # French
-        "divorce", "garde", "violence conjugale",
+        "divorce", "garde", "violence conjugale", "pension alimentaire",
         # Spanish
-        "divorcio", "custodia", "violencia doméstica",
+        "divorcio", "custodia", "violencia doméstica", "pensión alimenticia",
+        # Portuguese
+        "divórcio", "guarda", "violência doméstica", "pensão alimentícia",
+        # Russian
+        "развод", "опека", "домашнее насилие", "алименты",
+        # Turkish
+        "boşanma", "velayet", "aile içi şiddet", "nafaka",
         # Zulu
-        "ukushaywa", "abantwana",
+        "ukushaywa", "abantwana", "umzali",
+        # Hausa
+        "saki", "yara",
     ],
     CaseType.IMMIGRATION: [
         "visa", "deportation", "deport", "asylum", "refugee", "immigration",
         "undocumented", "citizenship", "border", "stateless", "no documents",
-        "passport confiscated", "kafala", "absconding charge",
+        "passport confiscated", "kafala", "absconding charge", "work permit",
+        "residence permit", "green card", "naturalization", "illegal entry",
+        "overstay", "smuggled", "human trafficking",
         # Urdu
-        "ویزا", "پناہ گزین", "بے وطن", "ملک بدری",
+        "ویزا", "پناہ گزین", "بے وطن", "ملک بدری", "شہریت",
         # Bengali
-        "ভিসা", "শরণার্থী", "নির্বাসন", "রোহিঙ্গা",
+        "ভিসা", "শরণার্থী", "নির্বাসন", "রোহিঙ্গা", "নাগরিকত্ব",
+        # Hindi
+        "वीजा", "शरणार्थी", "निर्वासन", "नागरिकता",
         # Arabic
-        "لاجئ", "ترحيل", "تأشيرة", "لجوء",
+        "لاجئ", "ترحيل", "تأشيرة", "لجوء", "جنسية", "إقامة",
         # Indonesian
-        "deportasi", "suaka", "pengungsi", "visa",
+        "deportasi", "suaka", "pengungsi", "visa", "izin tinggal",
+        # Swahili
+        "uhamiaji", "kimbizi", "visa", "deportesheni",
         # French
-        "expulsion", "asile", "réfugié", "visa",
+        "expulsion", "asile", "réfugié", "visa", "titre de séjour",
         # Spanish
-        "deportación", "asilo", "refugiado", "visa",
+        "deportación", "asilo", "refugiado", "visa", "permiso de residencia",
+        # Portuguese
+        "deportação", "asilo", "refugiado", "visto",
         # Russian
-        "депортация", "убежище", "беженец", "виза",
+        "депортация", "убежище", "беженец", "виза", "вид на жительство",
+        # Turkish
+        "sınır dışı etme", "sığınmacı", "mülteci", "vize", "oturma izni",
+        # Tagalog
+        "deportasyon", "visa", "refugee",
     ],
     CaseType.CONSUMER: [
         "fraud", "scam", "refund", "consumer", "product", "defective",
-        "warranty", "debt collector",
+        "warranty", "debt collector", "overcharged", "false advertising",
+        "pyramid scheme", "credit card", "loan shark", "interest rate",
+        "banking", "insurance claim",
         # Urdu
-        "دھوکہ", "واپسی", "صارف",
+        "دھوکہ", "واپسی", "صارف", "قرض",
+        # Bengali
+        "জালিয়াতি", "ফেরত", "ভোক্তা", "ঋণ",
         # Arabic
-        "احتيال", "استرداد", "مستهلك",
+        "احتيال", "استرداد", "مستهلك", "قرض", "غش",
         # Indonesian
-        "penipuan", "konsumen", "produk cacat",
+        "penipuan", "konsumen", "produk cacat", "hutang", "kartu kredit",
+        # Swahili
+        "udanganyifu", "mdai", "mkopo", "benki",
         # French
-        "fraude", "remboursement", "consommateur",
+        "fraude", "remboursement", "consommateur", "arnaque", "prêt",
         # Spanish
-        "fraude", "reembolso", "consumidor",
+        "fraude", "reembolso", "consumidor", "estafa", "préstamo",
+        # Portuguese
+        "fraude", "reembolso", "consumidor", "empréstimo",
+        # Russian
+        "мошенничество", "возврат", "потребитель", "кредит",
+        # Turkish
+        "dolandırıcılık", "iade", "tüketici", "kredi",
     ],
     CaseType.CIVIL: [
         "lawsuit", "sue", "contract", "breach", "damages", "compensation",
-        "negligence",
+        "negligence", "property dispute", "inheritance", "will", "estate",
+        "trespassing", "defamation", "slander", "libel",
         # Urdu
-        "مقدمہ", "معاوضہ", "عدالت",
+        "مقدمہ", "معاوضہ", "عدالت", "وراثت",
+        # Bengali
+        "মামলা", "ক্ষতিপূরণ", "চুক্তি", "উত্তরাধিকার",
         # Arabic
-        "دعوى", "تعويض", "عقد",
+        "دعوى", "تعويض", "عقد", "ميراث", "وصية",
         # Indonesian
-        "gugatan", "ganti rugi", "kontrak",
+        "gugatan", "ganti rugi", "kontrak", "warisan",
         # French
-        "procès", "indemnisation", "contrat",
+        "procès", "indemnisation", "contrat", "succession",
         # Spanish
-        "demanda", "indemnización", "contrato",
+        "demanda", "indemnización", "contrato", "herencia",
+        # Portuguese
+        "processo", "indemnização", "contrato", "herança",
+        # Russian
+        "иск", "компенсация", "договор", "наследство",
     ],
     CaseType.HUMAN_RIGHTS: [
         "torture", "discrimination", "rights violation", "freedom", "arbitrary",
-        "persecution", "execution", "killed", "murdered",
+        "persecution", "execution", "killed", "murdered", "disappeared",
+        "extrajudicial", "enforced disappearance", "political prisoner",
+        "freedom of speech", "freedom of assembly", "protest",
+        "ethnic cleansing", "genocide", "war crime",
         # Urdu
-        "تعذیب", "امتیازی سلوک", "ظلم",
+        "تعذیب", "امتیازی سلوک", "ظلم", "جبری گمشدگی",
         # Bengali
-        "নির্যাতন", "বৈষম্য",
+        "নির্যাতন", "বৈষম্য", "গুম", "রাজনৈতিক বন্দী",
+        # Hindi
+        "यातना", "भेदभाव", "अत्याचार",
         # Arabic
-        "تعذيب", "اضطهاد", "انتهاك حقوق",
+        "تعذيب", "اضطهاد", "انتهاك حقوق", "اختفاء قسري",
         # Indonesian
-        "penyiksaan", "diskriminasi",
+        "penyiksaan", "diskriminasi", "penghilangan paksa",
+        # Swahili
+        "mateso", "ubaguzi", "ukiukwaji wa haki",
         # French
-        "torture", "discrimination", "persécution",
+        "torture", "discrimination", "persécution", "disparition forcée",
         # Spanish
-        "tortura", "discriminación", "persecución",
+        "tortura", "discriminación", "persecución", "desaparición forzada",
+        # Portuguese
+        "tortura", "discriminação", "perseguição",
         # Russian
-        "пытки", "дискриминация", "преследование",
+        "пытки", "дискриминация", "преследование", "насильственное исчезновение",
+        # Turkish
+        "işkence", "ayrımcılık", "zulüm",
+        # Zulu
+        "ukuhlukunyezwa", "ukucwaswa",
     ],
 }
 
@@ -644,46 +1181,67 @@ URGENCY_CRITICAL_KEYWORDS = [
     "tonight", "today", "right now", "immediately", "emergency", "arrested",
     "being evicted", "locked out", "deported", "deportation tonight",
     "nowhere to sleep", "nowhere to go", "cannot contact", "don't know where",
-    "being killed", "will be killed", "threatening to deport",
+    "being killed", "will be killed", "threatening to deport", "on the street",
+    "no food", "children starving", "my life is in danger", "death threat",
+    "in custody right now", "they took my child", "missing person",
     # Urdu
-    "آج رات", "ابھی", "فوری", "گرفتار",
+    "آج رات", "ابھی", "فوری", "گرفتار", "جان کو خطرہ", "بچہ لے گئے",
     # Bengali
-    "আজ রাতে", "এখনই", "জরুরি", "গ্রেফতার",
+    "আজ রাতে", "এখনই", "জরুরি", "গ্রেফতার", "জীবন বিপন্ন",
     # Hindi
-    "आज रात", "अभी", "आपातकाल",
+    "आज रात", "अभी", "आपातकाल", "जान को खतरा",
     # Arabic
-    "الليلة", "الآن", "طوارئ", "اعتقل",
+    "الليلة", "الآن", "طوارئ", "اعتقل", "حياتي في خطر",
     # Indonesian
-    "malam ini", "segera", "darurat", "ditangkap",
+    "malam ini", "segera", "darurat", "ditangkap", "nyawa terancam",
     # Swahili
-    "usiku huu", "haraka", "dharura",
+    "usiku huu", "haraka", "dharura", "maisha yangu hatarini",
     # French
-    "ce soir", "maintenant", "urgence", "arrêté",
+    "ce soir", "maintenant", "urgence", "arrêté", "ma vie est en danger",
     # Spanish
-    "esta noche", "ahora", "urgente", "arrestado",
+    "esta noche", "ahora", "urgente", "arrestado", "mi vida está en peligro",
+    # Portuguese
+    "esta noite", "agora", "urgente", "preso", "minha vida está em perigo",
     # Russian
-    "сегодня ночью", "сейчас", "срочно", "арестован",
+    "сегодня ночью", "сейчас", "срочно", "арестован", "жизнь под угрозой",
     # Turkish
-    "bu gece", "şimdi", "acil", "tutuklandım",
+    "bu gece", "şimdi", "acil", "tutuklandım", "hayatım tehlikede",
+    # Zulu
+    "usuku", "manje", "isimo esiphuthumayo",
+    # Tagalog
+    "ngayon", "emergency", "dinakip",
+    # Hausa
+    "yanzu", "gaggawa",
 ]
 
 URGENCY_HIGH_KEYWORDS = [
     "tomorrow", "this week", "court date", "hearing", "deadline",
-    "24 hours", "48 hours", "months unpaid", "haven't paid",
+    "24 hours", "48 hours", "months unpaid", "haven't paid", "eviction notice",
+    "court order", "summons", "judgment", "appeal deadline",
     # Urdu
-    "کل", "عدالت", "مہینوں سے",
+    "کل", "عدالت", "مہینوں سے", "نوٹس",
     # Bengali
-    "কাল", "আদালত", "মাস ধরে",
+    "কাল", "আদালত", "মাস ধরে", "নোটিশ",
+    # Hindi
+    "कल", "अदालत", "महीनों से", "नोटिस",
     # Arabic
-    "غداً", "المحكمة", "أشهر",
+    "غداً", "المحكمة", "أشهر", "إشعار",
     # Indonesian
-    "besok", "sidang", "tenggat", "berbulan-bulan",
+    "besok", "sidang", "tenggat", "berbulan-bulan", "surat peringatan",
     # Swahili
-    "kesho", "mahakama", "miezi",
+    "kesho", "mahakama", "miezi", "notisi",
     # French
-    "demain", "audience", "échéance",
+    "demain", "audience", "échéance", "convocation",
     # Spanish
-    "mañana", "audiencia", "plazo",
+    "mañana", "audiencia", "plazo", "citación",
+    # Portuguese
+    "amanhã", "audiência", "prazo", "citação",
+    # Russian
+    "завтра", "суд", "слушание", "срок", "уведомление",
+    # Turkish
+    "yarın", "mahkeme", "süre", "ihbar",
+    # Tagalog
+    "bukas", "korte", "deadline",
 ]
 
 # ── Specialist flags ──────────────────────────────────────────────────────────
@@ -691,43 +1249,89 @@ URGENCY_HIGH_KEYWORDS = [
 STATELESS_KEYWORDS = [
     "no documents", "no passport", "no id", "no papers", "undocumented",
     "stateless", "rohingya", "no nationality", "no legal status",
-    "no citizenship", "لا وثائق", "بلا دستاویز",
-    "কোনো কাগজ নেই", "কোনো পাসপোর্ট নেই",
-    "sans papiers", "sin documentos", "без документов",
+    "no citizenship", "without papers", "no identity", "unregistered",
+    # Arabic
+    "لا وثائق", "عديم الجنسية", "بلا هوية",
+    # Urdu
+    "بلا دستاویز", "کوئی کاغذات نہیں",
+    # Bengali
+    "কোনো কাগজ নেই", "কোনো পাসপোর্ট নেই", "রোহিঙ্গা",
+    # French
+    "sans papiers", "apatride", "sans documents",
+    # Spanish
+    "sin documentos", "apátrida", "indocumentado",
+    # Russian
+    "без документов", "лицо без гражданства",
+    # Indonesian
+    "tanpa dokumen", "tidak berkewarganegaraan",
+    # Swahili
+    "bila hati", "mkimbizi asiye na nyaraka",
 ]
 
 MINOR_KEYWORDS = [
     "year-old", "years old", "years-old",
     "my son", "my daughter", "my child", "my kid", "my baby",
     "14-year", "15-year", "16-year", "17-year", "13-year",
-    "12-year", "11-year", "10-year", "minor", "juvenile",
+    "12-year", "11-year", "10-year", "minor", "juvenile", "underage",
+    "teenager", "toddler", "infant",
     # Urdu
-    "میرا بیٹا", "میری بیٹی", "بچہ", "بچی",
+    "میرا بیٹا", "میری بیٹی", "بچہ", "بچی", "بچے",
     # Bengali
-    "আমার ছেলে", "আমার মেয়ে", "শিশু",
+    "আমার ছেলে", "আমার মেয়ে", "শিশু", "বাচ্চা",
     # Hindi
-    "मेरा बेटा", "मेरी बेटी", "बच्चा",
+    "मेरा बेटा", "मेरी बेटी", "बच्चा", "बच्चे",
     # Arabic
-    "ابني", "ابنتي", "طفل", "قاصر",
+    "ابني", "ابنتي", "طفل", "قاصر", "أطفالي",
     # Indonesian
-    "anak saya", "putra saya", "putri saya",
+    "anak saya", "putra saya", "putri saya", "anak-anak", "anakku",
     # Swahili
-    "mtoto wangu", "mwanangu",
+    "mtoto wangu", "mwanangu", "watoto wangu",
     # French
-    "mon fils", "ma fille", "mon enfant", "mineur",
+    "mon fils", "ma fille", "mon enfant", "mineur", "mes enfants",
     # Spanish
-    "mi hijo", "mi hija", "mi hijo menor", "menor",
+    "mi hijo", "mi hija", "mi hijo menor", "menor", "mis hijos",
+    # Portuguese
+    "meu filho", "minha filha", "menor", "meus filhos",
+    # Russian
+    "мой сын", "моя дочь", "мой ребёнок", "несовершеннолетний",
+    # Turkish
+    "oğlum", "kızım", "çocuğum", "reşit olmayan",
+    # Zulu
+    "abantwana", "ingane yami",
+    # Tagalog
+    "anak ko", "bata",
+    # Hausa
+    "ɗana", "yarana",
 ]
 
 DEPORTATION_KEYWORDS = [
     "deport", "deportation", "threatening to deport", "remove", "removal order",
     "illegal entry", "send back", "will be sent", "return to",
-    "ملک بدر", "ملک بدری", "بے دخل",
-    "نির্বাসন", "ফেরত পাঠানো",
-    "deportasi", "akan dideportasi",
-    "expulsion", "expulsé", "deportación", "deportar",
-    "депортация", "депортировать",
-    "ترحيل", "يرحّلني",
+    "forced return", "expulsion order", "removal proceedings",
+    # Urdu
+    "ملک بدر", "ملک بدری", "بے دخل", "واپس بھیجنا",
+    # Bengali
+    "নির্বাসন", "ফেরত পাঠানো", "বহিষ্কার",
+    # Hindi
+    "निर्वासन", "वापस भेजना", "देश निकाला",
+    # Arabic
+    "ترحيل", "يرحّلني", "إعادة قسرية",
+    # Indonesian
+    "deportasi", "akan dideportasi", "diusir dari negara",
+    # Swahili
+    "deportesheni", "kurudishwa", "kufukuzwa nchini",
+    # French
+    "expulsion", "expulsé", "reconduite à la frontière",
+    # Spanish
+    "deportación", "deportar", "expulsión",
+    # Portuguese
+    "deportação", "deportar", "expulsão",
+    # Russian
+    "депортация", "депортировать", "выдворение",
+    # Turkish
+    "sınır dışı etme", "deport edilmek",
+    # Tagalog
+    "deportasyon", "papalayasin",
 ]
 
 TRAFFICKING_KEYWORDS = [
@@ -735,25 +1339,50 @@ TRAFFICKING_KEYWORDS = [
     "confiscated my passport", "not allowed to leave", "cannot leave",
     "locked in", "cannot go out", "trafficking", "forced labour",
     "forced labor", "bonded labour", "debt bondage", "placement fee",
-    "recruitment debt", "kafala", "domestic worker",
+    "recruitment debt", "kafala", "domestic worker", "no freedom",
+    "employer controls", "cannot contact family", "phone taken",
+    "watched all the time", "threatened if i leave",
+    # Arabic
+    "مصادرة جواز سفري", "لا يسمح لي بالمغادرة", "اتجار بالبشر",
+    # Bengali
+    "পাসপোর্ট নিয়ে নিয়েছে", "যেতে দেওয়া হচ্ছে না", "পাচার",
+    # Tagalog
+    "kinuha ang passport", "hindi makaalis", "trafficking",
+    # Indonesian
+    "paspor disita", "tidak boleh keluar", "perdagangan orang",
+    # French
+    "confiscation du passeport", "traite des êtres humains",
+    # Spanish
+    "confiscación del pasaporte", "trata de personas",
 ]
 
 CHILD_ABDUCTION_KEYWORDS = [
     "took my children", "took the children", "took my kids", "took my son",
     "took my daughter", "children taken", "abducted", "kidnapped my child",
-    "won't let me see", "denied access to my child",
+    "won't let me see", "denied access to my child", "parental abduction",
+    "child taken across border",
     # Urdu
-    "بچوں کو لے گئے", "بچے لے گئے",
+    "بچوں کو لے گئے", "بچے لے گئے", "بچہ اغوا",
     # Bengali
-    "সন্তান নিয়ে গেছে", "বাচ্চা নিয়ে গেছে",
+    "সন্তান নিয়ে গেছে", "বাচ্চা নিয়ে গেছে", "শিশু অপহরণ",
     # Hindi
-    "बच्चों को ले गया", "बच्चे ले गए",
+    "बच्चों को ले गया", "बच्चे ले गए", "बच्चे का अपहरण",
     # Arabic
-    "اختطف أطفالي", "أخذ أطفالي",
+    "اختطف أطفالي", "أخذ أطفالي", "اختطاف الأطفال",
     # French
-    "a pris mes enfants", "enlèvement",
+    "a pris mes enfants", "enlèvement parental", "rapt d'enfant",
     # Spanish
-    "se llevó a mis hijos", "secuestro",
+    "se llevó a mis hijos", "secuestro parental", "sustracción de menores",
+    # Portuguese
+    "levou meus filhos", "rapto parental",
+    # Russian
+    "забрал моих детей", "похищение ребёнка",
+    # Swahili
+    "watoto wangu wamechukuliwa", "utekaji nyara wa mtoto",
+    # Zulu
+    "bathatha abantwana bami",
+    # Tagalog
+    "kinuha ang aking mga anak",
 ]
 
 
@@ -772,7 +1401,7 @@ def _extract_age(text: str) -> int | None:
 class CaseClassifier:
     """
     Multilingual case intake classifier.
-    Supports 50+ countries with native script detection.
+    Supports 80+ countries with native script detection.
     Sets all specialist flags consumed by the retriever.
     """
 
@@ -790,18 +1419,42 @@ class CaseClassifier:
         return self._lang_detector
 
     def detect_language(self, text: str) -> str:
+        # Keyword-based override for languages langdetect handles poorly
+        text_lower = text.lower()
+        if any(kw in text for kw in ["umnikazi", "indlu", "abantwana", "ngiyacela",
+                                      "ukushaywa", "ethekwini", "ekapa", "mzansi"]):
+            return "zu"
+        if any(kw in text_lower for kw in ["mwajiri", "mwenye nyumba", "alikamatwa",
+                                            "mashtaka", "kizuizini", "sheria"]):
+            return "sw"
+        if any(kw in text_lower for kw in ["majikan", "gaji", "pengadilan",
+                                            "ditangkap", "phk"]):
+            return "id"
+        if any(kw in text_lower for kw in ["employeur", "salaire", "loyer",
+                                            "propriétaire", "arrestation"]):
+            return "fr"
+        if any(kw in text_lower for kw in ["empleador", "salario", "arrendador",
+                                            "arrestado", "desalojo"]):
+            return "es"
+        if any(kw in text_lower for kw in ["empregador", "salário", "senhorio",
+                                            "despejo"]):
+            return "pt"
+        if any(kw in text_lower for kw in ["işveren", "maaş", "ev sahibi",
+                                            "tutuklandım"]):
+            return "tr"
+        if any(kw in text_lower for kw in ["mwajiri", "mshahara", "polisi",
+                                            "dharura"]):
+            return "sw"
+        if any(kw in text for kw in ["sahod", "employer", "tinanggal",
+                                      "deportasyon", "pilipinas"]):
+            return "tl"
         try:
             return self._get_lang_detector()(text)
         except Exception:
             return "en"
 
     def detect_jurisdiction(self, text: str) -> tuple[str, str]:
-        """
-        Returns (country_code, jurisdiction_string).
-        Step 1: Native script city lookup (Urdu, Bengali, Hindi, Arabic, etc.)
-        Step 2: Latin-script keyword hints fallback.
-        """
-        # Native script — substring match anywhere in text
+        # Native script — substring match
         for city, code in NATIVE_SCRIPT_CITIES.items():
             if city in text:
                 print(f"[Classifier] Native script match: '{city}' → {code}")
@@ -831,9 +1484,11 @@ class CaseClassifier:
             return UrgencyLevel.CRITICAL
         if _check_keywords(text, URGENCY_HIGH_KEYWORDS):
             return UrgencyLevel.HIGH
-        if _check_keywords(text, ["arrest", "jail", "prison",
-                                   "گرفتار", "গ্রেফতার", "ditangkap",
-                                   "arrêté", "arrestado", "арестован"]):
+        if _check_keywords(text, [
+            "arrest", "jail", "prison", "گرفتار", "গ্রেফতার",
+            "ditangkap", "arrêté", "arrestado", "арестован",
+            "tutuklandım", "ukubopha",
+        ]):
             return UrgencyLevel.HIGH
         return UrgencyLevel.MEDIUM
 
@@ -856,19 +1511,23 @@ class CaseClassifier:
         has_passport = _check_keywords(text, [
             "passport confiscated", "took my passport",
             "holding my passport", "confiscated my passport",
+            "مصادرة جواز", "পাসপোর্ট নিয়ে", "paspor disita",
         ])
         has_unpaid = _check_keywords(text, [
             "not paid", "unpaid", "haven't paid", "hasn't paid",
             "no salary", "no wages", "7 months", "6 months", "5 months",
+            "8 months", "9 months", "10 months",
         ])
         has_no_movement = _check_keywords(text, [
-            "not allowed to leave", "cannot leave",
-            "locked in", "cannot go out",
+            "not allowed to leave", "cannot leave", "locked in",
+            "cannot go out", "not permitted to leave", "no freedom to leave",
         ])
         if has_passport and (has_unpaid or has_no_movement):
             flags["trafficking_indicators"] = True
-        if _check_keywords(text, ["trafficking", "forced labour", "forced labor",
-                                   "debt bondage", "kafala"]):
+        if _check_keywords(text, [
+            "trafficking", "forced labour", "forced labor",
+            "debt bondage", "kafala", "bonded labour",
+        ]):
             flags["trafficking_indicators"] = True
 
         return flags
